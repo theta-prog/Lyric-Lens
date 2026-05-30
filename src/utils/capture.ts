@@ -373,7 +373,7 @@ function drawHud(
   ctx.textAlign = 'right'
   ctx.fillText('f/1.8  ISO AUTO', width - inset, height * 0.032)
   ctx.textAlign = 'left'
-  ctx.fillText((songTitle || 'shutter chance').toUpperCase(), inset, height - height * 0.032)
+  ctx.fillText((songTitle || 'Lyric Lens').toUpperCase(), inset, height - height * 0.032)
   ctx.textAlign = 'right'
   ctx.fillStyle = '#f5c842'
   ctx.fillText(`● ${String(frameNumber).padStart(4, '0')}`, width - inset, height - height * 0.032)

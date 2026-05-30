@@ -1,6 +1,6 @@
-# shutter chance
+# Lyric Lens
 
-TextAlive API とカメラ風ビューファインダー演出で「シャッターチャンス」を再生するリリックアプリです。
+TextAlive API とカメラ風ビューファインダー演出で、風景や人物に歌詞の瞬間を重ねて撮影できるリリックアプリです。
 
 ## Setup
 

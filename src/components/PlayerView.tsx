@@ -360,7 +360,7 @@ const ViewfinderOverlay = memo(function ViewfinderOverlay({
       </div>
 
       <div className="absolute inset-x-5 bottom-4 flex items-center justify-between gap-3 font-display text-base font-black text-ink/70 sm:inset-x-7 sm:text-lg">
-        <span className="max-w-[52%] truncate">{songTitle || 'shutter chance'}</span>
+        <span className="max-w-[52%] truncate">{songTitle || 'Lyric Lens'}</span>
         <span className="text-yellow">● {String(shotCount).padStart(4, '0')}</span>
       </div>
 
@@ -812,7 +812,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
     if (shutterBusyRef.current) return
 
     shutterBusyRef.current = true
-    const phraseSnapshot = phraseRef.current || wordRef.current || 'shutter chance'
+    const phraseSnapshot = phraseRef.current || wordRef.current || 'Lyric Lens'
     const wordSnapshot = wordRef.current
     const songPositionSnapshot = songPositionRef.current
     const filterSnapshot = captureFilterRef.current

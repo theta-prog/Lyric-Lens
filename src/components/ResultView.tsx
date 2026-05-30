@@ -21,12 +21,12 @@ function getCaptureDataUrl(capture: CaptureItem, filterEnabled: boolean) {
 function downloadCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
   const link = document.createElement('a')
   link.href = getCaptureDataUrl(capture, filterEnabled)
-  link.download = `shutter-chance-${String(index + 1).padStart(3, '0')}.jpg`
+  link.download = `lyric-lens-${String(index + 1).padStart(3, '0')}.jpg`
   link.click()
 }
 
 async function shareCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
-  const filename = `shutter-chance-${String(index + 1).padStart(3, '0')}.jpg`
+  const filename = `lyric-lens-${String(index + 1).padStart(3, '0')}.jpg`
 
   if (!('share' in navigator)) {
     downloadCapture(capture, index, filterEnabled)
@@ -37,7 +37,7 @@ async function shareCapture(capture: CaptureItem, index: number, filterEnabled: 
     const res = await fetch(getCaptureDataUrl(capture, filterEnabled))
     const blob = await res.blob()
     const file = new File([blob], filename, { type: 'image/jpeg' })
-    const shareData = { files: [file], title: 'shutter chance', text: capture.phrase }
+    const shareData = { files: [file], title: 'Lyric Lens', text: capture.phrase }
 
     if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
       await navigator.share(shareData)

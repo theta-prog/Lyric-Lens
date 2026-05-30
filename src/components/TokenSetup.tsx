@@ -71,11 +71,11 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             <div className="h-full w-full border-2 border-cyan" />
           </div>
           <h1 className="font-display text-[4rem] font-black leading-none text-ink sm:text-[5.6rem]">
-            shutter
-            <span className="block text-cyan drop-shadow-[3px_3px_0_#f5c842]">chance</span>
+            Lyric
+            <span className="block text-cyan drop-shadow-[3px_3px_0_#f5c842]">Lens</span>
           </h1>
           <p className="mt-3 text-sm font-bold tracking-[0.28em] text-ink-light">
-            LYRIC VIEWFINDER
+            CAPTURE THE VERSE
           </p>
         </div>
 

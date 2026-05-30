@@ -116,6 +116,8 @@ export interface TextAliveState {
   songTitle: string
   bpm: number
   error: string | null
+  currentValenceArousal: { v: number; a: number } | null
+  songMedianValenceArousal: { v: number; a: number } | null
 }
 
 type PhraseChangeCb = (newPhrase: string, prevPhrase: string) => void
@@ -187,6 +189,8 @@ export function useTextAlive(
     songTitle: '',
     bpm: 0,
     error: null,
+    currentValenceArousal: null,
+    songMedianValenceArousal: null,
   })
 
   onPhraseChangeRef.current = onPhraseChange
@@ -214,6 +218,8 @@ export function useTextAlive(
       currentWord: '',
       progress: 0,
       error: null,
+      currentValenceArousal: null,
+      songMedianValenceArousal: null,
     }))
 
     ;(async () => {
@@ -224,6 +230,7 @@ export function useTextAlive(
         const player = new Player({
           app: { token },
           mediaElement,
+          valenceArousalEnabled: true,
         })
         playerRef.current = player
         setDebugPlayerHandle(player, debugLyricsRef.current)
@@ -234,6 +241,8 @@ export function useTextAlive(
             startupSyncFrameRef.current = null
           }
         }
+
+        let lastMoodUpdateMs = 0
 
         const syncLyrics = (audioPosition: number) => {
           const video = (player as any).video
@@ -309,6 +318,26 @@ export function useTextAlive(
           if (wordChanged) {
             onWordChangeRef.current?.(wordText, prevWord, audioPosition)
           }
+
+          // Throttled valence/arousal mood update (300 ms intervals)
+          const nowMs = performance.now()
+          if (nowMs - lastMoodUpdateMs >= 300) {
+            lastMoodUpdateMs = nowMs
+            try {
+              const va = (player as any).getValenceArousal?.(audioPosition) as
+                | { v: number; a: number }
+                | null
+                | undefined
+              if (va && typeof va.v === 'number' && typeof va.a === 'number') {
+                setState(current => ({
+                  ...current,
+                  currentValenceArousal: { v: va.v, a: va.a },
+                }))
+              }
+            } catch {
+              // valence/arousal data not available for this song
+            }
+          }
         }
 
         const startStartupLyricSync = () => {
@@ -376,7 +405,22 @@ export function useTextAlive(
                 firstChar: firstChar?.text ?? '',
               })
             }
-            setState(current => ({ ...current, isLoaded: true, bpm }))
+            let songMedianVA: { v: number; a: number } | null = null
+            try {
+              const mva = (player as any).getMedianValenceArousal?.() as { v: number; a: number } | null | undefined
+              if (mva && typeof mva.v === 'number' && typeof mva.a === 'number') {
+                songMedianVA = { v: mva.v, a: mva.a }
+              }
+            } catch { /* VA not yet available */ }
+            setState(current => ({ ...current, isLoaded: true, bpm, songMedianValenceArousal: songMedianVA }))
+          },
+          onValenceArousalLoad() {
+            try {
+              const mva = (player as any).getMedianValenceArousal?.() as { v: number; a: number } | null | undefined
+              if (mva && typeof mva.v === 'number' && typeof mva.a === 'number') {
+                setState(current => ({ ...current, songMedianValenceArousal: { v: mva.v, a: mva.a } }))
+              }
+            } catch { /* not available */ }
           },
           onPlay() {
             setState(current => ({ ...current, isPlaying: true }))
@@ -390,12 +434,15 @@ export function useTextAlive(
           },
           onStop() {
             stopStartupLyricSync()
+            lastMoodUpdateMs = 0
             setState(current => ({
               ...current,
               isPlaying: false,
               currentPhrase: '',
               currentWord: '',
               progress: 0,
+              currentValenceArousal: null,
+              songMedianValenceArousal: null,
             }))
             prevPhraseRef.current = ''
             prevWordRef.current = ''

@@ -1,13 +1,13 @@
 import type { PlayerVideoOptions } from 'textalive-app-api'
 import { AnimatePresence, motion } from 'framer-motion'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCamera } from '../hooks/useCamera'
 import { useTextAlive } from '../hooks/useTextAlive'
 import type { CaptureItem, CurtainPhase, ShutterEffect } from '../types'
 import { captureFrame } from '../utils/capture'
 import PlaybackBar from './PlaybackBar'
 
-interface ShutterTrigger {
+interface LyricTrigger {
   words: readonly string[]
   effect?: ShutterEffect
   countdown?: {
@@ -17,9 +17,9 @@ interface ShutterTrigger {
   }
 }
 
-const SHUTTER_TRIGGERS: readonly ShutterTrigger[] = [
+const LYRIC_TRIGGERS: readonly LyricTrigger[] = [
   {
-    words: ['シャッター', 'しゃったー', 'チャンス', '瞬間', '今', '切り取り'],
+    words: ['シャッター', 'しゃったー', 'チャンス', '瞬間', '切り取り', '切り取', '保存', '残せる'],
     countdown: {
       steps: [3, 2, 1],
       beatsPerStep: 1,
@@ -28,11 +28,39 @@ const SHUTTER_TRIGGERS: readonly ShutterTrigger[] = [
   },
   { words: ['ファインダー'],        effect: 'finder' },
   { words: ['フォーカス', '焦点'], effect: 'focus-zoom' },
-  { words: ['ピント'],             effect: 'blur-to-clear' },
+  { words: ['ピント', '凍り', '溶け'], effect: 'blur-to-clear' },
   { words: ['ストロボ'],           effect: 'strobe' },
   { words: ['スナップ'],           effect: 'snap' },
   { words: ['フレーム'],           effect: 'frame' },
   { words: ['レリーズ'],           effect: 'default' },
+  {
+    words: ['光', 'ヒカリ', '灯り', '輝', '色', 'イロ', '青', '影', '闇', '残像', 'ヘイロー', '照ら', '水面', '映る', '形', 'カケラ', '綺麗', '丸'],
+    effect: 'light-leak',
+  },
+  {
+    words: ['声', 'コエ', '言葉', '音', 'オンガク', '音楽', 'メロディ', '残響', 'シグナル', '周波数', 'テンポ', 'clap', 'beat', '拍手'],
+    effect: 'sound-wave',
+  },
+  {
+    words: ['ノイズ', 'noise', 'ホワイトノイズ'],
+    effect: 'noise',
+  },
+  {
+    words: ['幕', 'ステージ', 'カーテン', '終わり', 'はじまり'],
+    effect: 'stage-curtain',
+  },
+  {
+    words: ['加速', '速度', 'アクセル', 'speed', 'full speed', 'テイクオーバー', 'takeover'],
+    effect: 'speed-lines',
+  },
+  {
+    words: ['世界', 'セカイ', '未来', 'ミライ'],
+    effect: 'glitch',
+  },
+  {
+    words: ['問い', '答え', '探', '目', '手を伸ば', '迷', '見せ', '魅せ', '見つけ', '見捨て', '見れる', 'ウソ', '本物', 'ロジック', '取り繕', 'ハリボテ'],
+    effect: 'answer-scan',
+  },
 ]
 
 const wait = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms))
@@ -63,10 +91,48 @@ function normalizeText(text: string) {
   return text.trim().toLowerCase()
 }
 
+// Order matters: longer/more-specific words first to avoid partial matches
+const COLOR_LYRICS_MAP: readonly [string, number][] = [
+  ['黄色', 55], ['水色', 190],
+  ['赤', 0], ['紅', 5], ['朱', 10],
+  ['橙', 28], ['オレンジ', 25],
+  ['黄', 55],
+  ['緑', 130], ['翠', 120],
+  ['青', 220], ['蒼', 215], ['藍', 240],
+  ['紫', 280],
+  ['桃', 345], ['ピンク', 340],
+]
+
+function findColorKeyword(text: string): number | null {
+  const normalized = normalizeText(text)
+  for (const [word, hue] of COLOR_LYRICS_MAP) {
+    if (normalized.includes(normalizeText(word))) return hue
+  }
+  return null
+}
+
+// Each preset song has a distinct color identity.
+// hue = tint hue (0-360°), strength = base opacity (0-1)
+// This is the reliable fallback when TextAlive VA API returns null.
+const SONG_PERSONALITIES: Record<string, { hue: number; strength: number }> = {
+  'E2i3': { hue: 215, strength: 0.24 }, // TAKEOVER: cool blue
+  '6W2N': { hue: 200, strength: 0.14 }, // こたえて: cool blue
+  'zoqO': { hue: 228, strength: 0.13 }, // アフター・ザ・カーテン: deep blue
+  'B3yJ': { hue: 32,  strength: 0.20 }, // 世界最後の音楽隊: amber
+  'QBdL': { hue: 188, strength: 0.16 }, // トリツクロジー: teal
+}
+
+function getSongPersonality(url: string) {
+  for (const [id, p] of Object.entries(SONG_PERSONALITIES)) {
+    if (url.includes(id)) return p
+  }
+  return null
+}
+
 function findShutterTrigger(text: string) {
   const normalizedText = normalizeText(text)
 
-  return SHUTTER_TRIGGERS.find(trigger =>
+  return LYRIC_TRIGGERS.find(trigger =>
     trigger.words.some(word => normalizedText.includes(normalizeText(word))),
   )
 }
@@ -79,6 +145,13 @@ function getEffectDuration(effect: ShutterEffect): number {
     case 'strobe':       return 370
     case 'snap':         return 370
     case 'frame':        return 420
+    case 'light-leak':   return 520
+    case 'sound-wave':   return 560
+    case 'stage-curtain': return 620
+    case 'speed-lines':  return 460
+    case 'answer-scan':  return 560
+    case 'glitch':       return 580
+    case 'noise':        return 340
     default:             return 0
   }
 }
@@ -132,11 +205,11 @@ const CameraBackdrop = memo(function CameraBackdrop({
   }
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[linear-gradient(135deg,#fffefa_0%,#e8fbff_48%,#fff0b8_100%)]">
-      <div className="absolute left-[12%] top-[32%] h-[14%] max-h-18 min-h-12 w-[21%] max-w-18 rotate-[-10deg] border-[6px] border-cyan/32 bg-white/18 opacity-70 shadow-sketch sm:left-[10%] sm:top-[25%] sm:h-[18%] sm:max-h-24 sm:w-[24%] sm:max-w-24 sm:border-[8px]" />
-      <div className="absolute right-[5%] top-[31%] h-[11%] max-h-14 min-h-11 w-[36%] max-w-30 rotate-[8deg] border-[6px] border-yellow/45 bg-white/18 opacity-75 shadow-sketch sm:top-[26%] sm:h-[13%] sm:max-h-18 sm:max-w-36 sm:border-[7px]" />
-      <div className="absolute bottom-[13%] left-[8%] h-[21%] max-h-24 min-h-18 w-[47%] max-w-40 rotate-[3deg] border-[6px] border-ink/8 bg-white/14 opacity-65 shadow-sketch sm:bottom-[12%] sm:h-[23%] sm:max-h-28 sm:max-w-44 sm:border-[7px]" />
-      <div className="absolute bottom-[15%] right-[10%] h-[15%] max-h-18 min-h-12 w-[20%] max-w-18 rotate-[-8deg] rounded-full border-[8px] border-cyan/18 bg-yellow/18 opacity-75 sm:bottom-[14%] sm:h-[16%] sm:max-h-20 sm:max-w-20 sm:border-[9px]" />
+    <div className="absolute inset-0 overflow-hidden bg-[linear-gradient(135deg,#edfdf2_0%,#b8efff_48%,#fff0a0_100%)]">
+      <div className="absolute left-[12%] top-[32%] h-[14%] max-h-18 min-h-12 w-[21%] max-w-18 rotate-[-10deg] border-[6px] border-cyan/55 bg-cyan/10 opacity-70 shadow-sketch sm:left-[10%] sm:top-[25%] sm:h-[18%] sm:max-h-24 sm:w-[24%] sm:max-w-24 sm:border-[8px]" />
+      <div className="absolute right-[5%] top-[31%] h-[11%] max-h-14 min-h-11 w-[36%] max-w-30 rotate-[8deg] border-[6px] border-yellow/65 bg-yellow/14 opacity-75 shadow-sketch sm:top-[26%] sm:h-[13%] sm:max-h-18 sm:max-w-36 sm:border-[7px]" />
+      <div className="absolute bottom-[13%] left-[8%] h-[21%] max-h-24 min-h-18 w-[47%] max-w-40 rotate-[3deg] border-[6px] border-ink/10 bg-white/14 opacity-65 shadow-sketch sm:bottom-[12%] sm:h-[23%] sm:max-h-28 sm:max-w-44 sm:border-[7px]" />
+      <div className="absolute bottom-[15%] right-[10%] h-[15%] max-h-18 min-h-12 w-[20%] max-w-18 rotate-[-8deg] rounded-full border-[8px] border-cyan/35 bg-yellow/28 opacity-75 sm:bottom-[14%] sm:h-[16%] sm:max-h-20 sm:max-w-20 sm:border-[9px]" />
       <div className="sketch-lines" aria-hidden="true" />
     </div>
   )
@@ -297,7 +370,264 @@ const EffectOverlay = memo(function EffectOverlay({
     return <div key={effectKey} className={`${base} animate-[frameConstrict_0.42s_ease-out]`} />
   }
 
+  if (effect === 'light-leak') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden animate-[lightLeak_0.52s_ease-out]`}>
+        <div className="absolute -left-[18%] top-[-8%] h-[62%] w-[48%] rotate-12 bg-cyan/28 blur-[18px]" />
+        <div className="absolute right-[-10%] top-[8%] h-[76%] w-[42%] -rotate-6 bg-yellow/34 blur-[20px]" />
+        <div className="absolute inset-x-0 top-[45%] h-1 bg-white/70" />
+      </div>
+    )
+  }
+
+  if (effect === 'sound-wave') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden animate-[soundWave_0.56s_ease-out]`}>
+        <div className="absolute inset-x-[6%] top-[28%] h-px bg-cyan/70" />
+        <div className="absolute inset-x-[10%] top-[40%] h-1 bg-yellow/65" />
+        <div className="absolute inset-x-[4%] top-[53%] h-px bg-white/70" />
+        <div className="absolute inset-x-[16%] top-[66%] h-1 bg-cyan/55" />
+        {Array.from({ length: 11 }).map((_, index) => (
+          <span
+            key={index}
+            className="absolute bottom-[22%] w-1 rounded-full bg-ink/42"
+            style={{
+              left: `${12 + index * 7.5}%`,
+              height: `${18 + (index % 4) * 18}%`,
+              animation: `meterKick 0.42s ease-out ${index * 0.018}s both`,
+            }}
+          />
+        ))}
+      </div>
+    )
+  }
+
+  if (effect === 'stage-curtain') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden animate-[stageCurtain_0.62s_ease-out]`}>
+        <div className="absolute inset-y-0 left-0 w-[36%] bg-ink/48" />
+        <div className="absolute inset-y-0 right-0 w-[36%] bg-ink/48" />
+        <div className="absolute inset-x-0 top-0 h-[12%] bg-yellow/28" />
+        <div className="absolute inset-x-[12%] top-[14%] border-t-2 border-dashed border-cyan/60" />
+      </div>
+    )
+  }
+
+  if (effect === 'speed-lines') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden animate-[speedLines_0.46s_ease-out]`}>
+        {Array.from({ length: 9 }).map((_, index) => (
+          <span
+            key={index}
+            className="absolute h-1 w-[46%] -rotate-12 bg-ink/28"
+            style={{
+              left: `${-10 + index * 9}%`,
+              top: `${16 + (index % 5) * 15}%`,
+            }}
+          />
+        ))}
+        <div className="absolute inset-[9%] border-4 border-yellow/60" />
+      </div>
+    )
+  }
+
+  if (effect === 'answer-scan') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden animate-[answerScan_0.56s_ease-out]`}>
+        <div className="absolute inset-x-[8%] top-[22%] h-px bg-cyan/75" />
+        <div className="absolute inset-x-[8%] top-[50%] h-1 bg-white/80" />
+        <div className="absolute inset-x-[8%] top-[72%] h-px bg-cyan/75" />
+        <div className="absolute left-[18%] top-[29%] h-[42%] w-[64%] border-2 border-dashed border-yellow/70" />
+        <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 border-2 border-cyan/90">
+          <div className="absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-cyan/80" />
+          <div className="absolute left-2 right-2 top-1/2 h-px -translate-y-1/2 bg-cyan/80" />
+        </div>
+      </div>
+    )
+  }
+
+  if (effect === 'noise') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden`}
+        style={{ animation: 'noiseFlicker 0.34s linear both' }}>
+        {/* Fine static texture */}
+        <div className="absolute inset-0" style={{
+          backgroundImage:
+            'repeating-linear-gradient(0deg, rgba(255,255,255,0.07) 0px, rgba(255,255,255,0.07) 1px, transparent 1px, transparent 3px),' +
+            'repeating-linear-gradient(90deg, rgba(0,0,0,0.05) 0px, rgba(0,0,0,0.05) 1px, transparent 1px, transparent 3px)',
+          backgroundSize: '3px 3px',
+        }} />
+        {/* Desaturation + contrast backdrop */}
+        <div className="absolute inset-0" style={{
+          backdropFilter: 'contrast(160%) saturate(15%) brightness(112%)',
+          WebkitBackdropFilter: 'contrast(160%) saturate(15%) brightness(112%)',
+          opacity: 0.55,
+        }} />
+        {/* Horizontal scan bars */}
+        {[8, 24, 43, 59, 74, 88].map((pct, i) => (
+          <div key={i} className="absolute inset-x-0" style={{
+            top: `${pct}%`,
+            height: `${1 + (i % 3)}px`,
+            backgroundColor: i % 2 === 0 ? 'rgba(255,255,255,0.72)' : 'rgba(160,200,255,0.55)',
+            animation: `noiseScan 0.34s linear ${i * 0.016}s both`,
+          }} />
+        ))}
+      </div>
+    )
+  }
+
+  if (effect === 'glitch') {
+    return (
+      <div key={effectKey} className={`${base} overflow-hidden`}
+        style={{ animation: 'glitchFrame 0.58s ease-out both' }}>
+        {/* Scanlines */}
+        <div className="absolute inset-0" style={{
+          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px)',
+        }} />
+        {/* RGB split: red channel right */}
+        <div className="absolute inset-0" style={{
+          backgroundColor: 'rgba(255,0,80,0.22)',
+          mixBlendMode: 'screen',
+          animation: 'glitchR 0.58s ease-out both',
+        }} />
+        {/* RGB split: blue channel left */}
+        <div className="absolute inset-0" style={{
+          backgroundColor: 'rgba(0,200,255,0.22)',
+          mixBlendMode: 'screen',
+          animation: 'glitchB 0.58s ease-out both',
+        }} />
+        {/* Noise bars */}
+        {[14, 38, 56, 73, 88].map((pct, i) => (
+          <div key={i} className="absolute inset-x-0" style={{
+            top: `${pct}%`,
+            height: `${2 + (i % 3) * 2}px`,
+            backgroundColor: i % 2 === 0 ? 'rgba(0,220,255,0.55)' : 'rgba(255,255,255,0.45)',
+            animation: `glitchBar 0.58s ease-out ${i * 0.04}s both`,
+          }} />
+        ))}
+        {/* Digital frame corners */}
+        <div className="absolute left-[8%] top-[8%] h-10 w-10 border-l-2 border-t-2 border-cyan/80" />
+        <div className="absolute right-[8%] top-[8%] h-10 w-10 border-r-2 border-t-2 border-cyan/80" />
+        <div className="absolute bottom-[8%] left-[8%] h-10 w-10 border-b-2 border-l-2 border-cyan/80" />
+        <div className="absolute bottom-[8%] right-[8%] h-10 w-10 border-b-2 border-r-2 border-cyan/80" />
+      </div>
+    )
+  }
+
   return null
+})
+
+const MoodColorOverlay = memo(function MoodColorOverlay({
+  valenceArousal,
+  songMedianValenceArousal,
+  songPersonality,
+  bpm,
+  lyricColorHue,
+}: {
+  valenceArousal: { v: number; a: number } | null
+  songMedianValenceArousal: { v: number; a: number } | null
+  songPersonality: { hue: number; strength: number } | null
+  bpm: number
+  lyricColorHue: number | null
+}) {
+  const effectiveVA = valenceArousal ?? songMedianValenceArousal
+  const arousal = effectiveVA?.a ?? 0
+  const valence = effectiveVA?.v ?? 0
+
+  // BPM factor: 0 at BPM≤45, 1 at BPM≥140
+  const bpmFactor = bpm > 0 ? Math.min(1, Math.max(0, (bpm - 45) / 95)) : 0
+
+  // Energy level: live arousal if VA available, else estimate from personality
+  const energyLevel = effectiveVA
+    ? Math.max(0, arousal)
+    : (songPersonality?.strength ?? 0.20) * 1.0
+
+  if (songPersonality) {
+    // === Personality-based mode (known preset songs) ===
+    const { hue: pHue, strength: pStr } = songPersonality
+    const isWarm = pHue < 100 || pHue > 300 // red/orange/yellow/pink zone
+
+    const tintHue = lyricColorHue !== null ? lyricColorHue : pHue
+    const tintSat = 68
+    const tintBase = Math.min(0.30, pStr + bpmFactor * 0.04 + energyLevel * 0.03)
+    const tintOpacity = lyricColorHue !== null ? Math.max(tintBase, 0.22) : tintBase
+
+    // Backdrop: gentle push toward personality direction
+    const hueRotate = isWarm
+      ? Math.round(-pStr * 35 - energyLevel * 12) // negative = warm
+      : Math.round(pStr * 35 + energyLevel * 8)   // positive = cool
+    const saturate = Math.min(165, Math.round(85 + energyLevel * 70 + bpmFactor * 40))
+    const contrast  = Math.round(100 + bpmFactor * 12 + energyLevel * 5)
+    const brightness = Math.round(98 + valence * 4)
+
+    return (
+      <>
+        <div
+          className="pointer-events-none absolute inset-0 z-10"
+          style={{
+            backdropFilter: `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`,
+            WebkitBackdropFilter: `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`,
+            transition: 'backdrop-filter 0.8s ease-in-out, -webkit-backdrop-filter 0.8s ease-in-out',
+          }}
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-0 z-10"
+          style={{
+            backgroundColor: `hsl(${tintHue}deg ${tintSat}% 52%)`,
+            opacity: tintOpacity,
+            transition: 'background-color 0.4s ease-in-out, opacity 0.4s ease-in-out',
+          }}
+          aria-hidden
+        />
+      </>
+    )
+  }
+
+  // === VA/BPM-only mode (custom/unknown songs) ===
+  const hasData = Boolean(effectiveVA) || bpm > 0
+  const energyFactor = Math.min(1, bpmFactor + Math.max(0, arousal) * 0.7)
+  const hueRotate = Math.round((-25 + (1 - (valence + 1) / 2) * 65) - energyFactor * 40)
+  const saturate  = Math.min(260, Math.round(55 + ((arousal + 1) / 2) * 130 + energyFactor * 80))
+  const contrast  = Math.round(100 + energyFactor * 20)
+  const brightness = Math.round(96 + ((valence + 1) / 2) * 9 - Math.max(0, -arousal) * 6)
+  const backdropFilterValue = hasData
+    ? `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`
+    : 'none'
+  const baseHue = 45 + (1 - (valence + 1) / 2) * 175
+  const redPull = Math.min(0.9, energyFactor * 0.75 + Math.max(0, arousal) * 0.2)
+  const moodHue = Math.round(baseHue * (1 - redPull) + 5 * redPull)
+  const satTint = Math.min(92, Math.round(18 + ((arousal + 1) / 2) * 52 + energyFactor * 30))
+  const baseOpacity = effectiveVA
+    ? Math.max(0.05, 0.04 + Math.abs(valence) * 0.12 + Math.abs(arousal) * 0.10)
+    : bpmFactor * 0.10
+  const moodOpacity = Math.min(0.42, baseOpacity + energyFactor * 0.16)
+  const activeTintHue     = lyricColorHue !== null ? lyricColorHue : moodHue
+  const activeTintSat     = lyricColorHue !== null ? 80 : satTint
+  const activeTintOpacity = lyricColorHue !== null ? Math.max(moodOpacity, 0.30) : moodOpacity
+
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{
+          backdropFilter: backdropFilterValue,
+          WebkitBackdropFilter: backdropFilterValue,
+          transition: 'backdrop-filter 0.8s ease-in-out, -webkit-backdrop-filter 0.8s ease-in-out',
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{
+          backgroundColor: `hsl(${activeTintHue}deg ${activeTintSat}% 54%)`,
+          opacity: activeTintOpacity,
+          transition: 'background-color 0.4s ease-in-out, opacity 0.4s ease-in-out',
+        }}
+        aria-hidden
+      />
+    </>
+  )
 })
 
 export default function PlayerView({ token, songUrl, songOptions, onFinish }: PlayerViewProps) {
@@ -326,8 +656,12 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   const [countdownValue, setCountdownValue] = useState<number | null>(null)
   const [activeEffect, setActiveEffect] = useState<ShutterEffect | null>(null)
   const [effectKey, setEffectKey] = useState(0)
+  const [lyricColorHue, setLyricColorHue] = useState<number | null>(null)
+  const colorHueTimerRef = useRef<number | undefined>(undefined)
 
   const camera = useCamera()
+
+  const songPersonality = useMemo(() => getSongPersonality(songUrl), [songUrl])
 
   const onPhraseChange = useCallback((nextPhrase: string) => {
     if (nextPhrase) {
@@ -392,7 +726,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   }, [cancelCountdown, handleShutter])
 
   const handleTriggerShutter = useCallback(
-    async (trigger: ShutterTrigger, triggerText: string, triggerTime: number) => {
+    async (trigger: LyricTrigger, triggerText: string, triggerTime: number) => {
       if (shutterBusyRef.current || countdownBusyRef.current) return
 
       lastAutoRef.current = { text: triggerText, time: triggerTime }
@@ -443,6 +777,16 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
       wordRef.current = nextWord
       songPositionRef.current = position
 
+      // Color keyword detection: runs regardless of auto-mode so the tint always reacts
+      if (nextWord) {
+        const colorHue = findColorKeyword(nextWord)
+        if (colorHue !== null) {
+          window.clearTimeout(colorHueTimerRef.current)
+          setLyricColorHue(colorHue)
+          colorHueTimerRef.current = window.setTimeout(() => setLyricColorHue(null), 2200)
+        }
+      }
+
       if (!autoModeRef.current || !isPlayingRef.current || !nextWord) return
 
       const text = normalizeText(nextWord)
@@ -467,6 +811,8 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
     songTitle,
     bpm,
     error,
+    currentValenceArousal,
+    songMedianValenceArousal,
     play,
     pause,
     seek,
@@ -537,6 +883,10 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             animate={
               activeEffect === 'focus-zoom'
                 ? { scale: 1.12, rotate: -1.8 }
+                : activeEffect === 'speed-lines'
+                  ? { scale: 1.08, rotate: 1.2 }
+                : activeEffect === 'glitch'
+                  ? { scale: 1.03, rotate: 0.5 }
                 : { scale: 1, rotate: 0 }
             }
             transition={{ type: 'spring', stiffness: 130, damping: 14 }}
@@ -544,6 +894,14 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             <CameraBackdrop enabled={camera.enabled} videoRef={videoRef} />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_44%,transparent_0%,transparent_57%,rgba(26,26,31,0.18)_100%)]" />
           </motion.div>
+
+          <MoodColorOverlay
+            valenceArousal={currentValenceArousal}
+            songMedianValenceArousal={songMedianValenceArousal}
+            songPersonality={songPersonality}
+            bpm={bpm}
+            lyricColorHue={lyricColorHue}
+          />
 
           <ViewfinderOverlay
             afPulse={afPulse}

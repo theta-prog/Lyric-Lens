@@ -2,7 +2,21 @@ import type { PlayerVideoOptions } from 'textalive-app-api'
 
 export type Phase = 'setup' | 'playing' | 'result'
 export type CurtainPhase = 'idle' | 'closing' | 'opening'
-export type ShutterEffect = 'default' | 'finder' | 'focus-zoom' | 'blur-to-clear' | 'strobe' | 'snap' | 'frame'
+export type ShutterEffect =
+  | 'default'
+  | 'finder'
+  | 'focus-zoom'
+  | 'blur-to-clear'
+  | 'strobe'
+  | 'snap'
+  | 'frame'
+  | 'light-leak'
+  | 'sound-wave'
+  | 'stage-curtain'
+  | 'speed-lines'
+  | 'answer-scan'
+  | 'glitch'
+  | 'noise'
 
 export interface SetupConfig {
   songUrl: string

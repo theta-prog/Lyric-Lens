@@ -9,7 +9,7 @@ interface PresetSong extends SetupConfig {
 
 const PRESET_SONGS: readonly PresetSong[] = [
   {
-    label: 'シャッターチャンス',
+    label: 'シャッターチャンス / 夜未アガリ',
     songUrl: 'https://piapro.jp/t/PNpQ/20251209170719',
     songOptions: {
       video: {
@@ -20,6 +20,26 @@ const PRESET_SONGS: readonly PresetSong[] = [
         lyricDiffId: 28628,
       },
     },
+  },
+  {
+    label: 'こたえて / imie',
+    songUrl: 'https://piapro.jp/t/6W2N',
+  },
+  {
+    label: 'アフター・ザ・カーテン / Rulmry',
+    songUrl: 'https://piapro.jp/t/zoqO',
+  },
+  {
+    label: '世界最後の音楽隊 / 夏山よつぎ×ど～ぱみん',
+    songUrl: 'https://piapro.jp/t/B3yJ',
+  },
+  {
+    label: 'トリツクロジー / 鶴三',
+    songUrl: 'https://piapro.jp/t/QBdL',
+  },
+  {
+    label: 'TAKEOVER / Twinfield',
+    songUrl: 'https://piapro.jp/t/E2i3',
   },
   {
     label: 'カスタム URL',
@@ -36,6 +56,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
   const [customUrl, setCustomUrl] = useState('')
 
   const selectedSong = PRESET_SONGS[songIndex]
+  const isCustomSong = selectedSong.songUrl === ''
   const songUrl = selectedSong.songUrl || customUrl
   const canStart = HAS_TEXTALIVE_TOKEN && songUrl.trim() !== ''
 
@@ -44,7 +65,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
       <div className="absolute inset-0 setup-paper" aria-hidden="true" />
       <div className="absolute inset-x-0 top-0 h-2 bg-[linear-gradient(90deg,#3dd6e8,#f5c842,#3dd6e8)]" />
 
-      <div className="relative w-full max-w-xl">
+      <div className="relative w-full max-w-xl min-w-0">
         <div className="mb-7 text-center">
           <div className="mx-auto mb-4 h-16 w-24 rotate-[-6deg] border-[6px] border-ink bg-white shadow-sketch">
             <div className="h-full w-full border-2 border-cyan" />
@@ -59,7 +80,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
         </div>
 
         <form
-          className="rounded-lg border-2 border-ink bg-white/86 p-5 shadow-sketch backdrop-blur sm:p-6"
+          className="min-w-0 rounded-lg border-2 border-ink bg-white/86 p-5 shadow-sketch backdrop-blur sm:p-6"
           onSubmit={event => {
             event.preventDefault()
             if (!canStart) return
@@ -69,7 +90,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             })
           }}
         >
-          <div className="mb-5 flex items-center justify-between border-b-2 border-ink pb-3 font-display text-lg font-black tracking-[0.08em] text-ink">
+          <div className="mb-5 flex min-w-0 items-center justify-between gap-4 border-b-2 border-ink pb-3 font-display text-lg font-black tracking-[0.08em] text-ink">
             <span>ROLL 001</span>
             <span className="text-cyan">TEXTALIVE</span>
           </div>
@@ -81,12 +102,12 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
               </div>
             )}
 
-            <label className="grid gap-2 text-sm font-bold">
+            <label className="grid min-w-0 gap-2 text-sm font-bold">
               <span>楽曲</span>
               <select
                 value={songIndex}
                 onChange={event => setSongIndex(Number(event.target.value))}
-                className="min-h-12 rounded-md border-2 border-ink bg-paper px-3 text-base outline-none transition focus:border-cyan focus:ring-4 focus:ring-cyan/20"
+                className="min-h-12 w-full min-w-0 rounded-md border-2 border-ink bg-paper px-3 text-base outline-none transition focus:border-cyan focus:ring-4 focus:ring-cyan/20"
               >
                 {PRESET_SONGS.map((song, index) => (
                   <option key={song.label} value={index}>
@@ -96,7 +117,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
               </select>
             </label>
 
-            {songIndex === 1 && (
+            {isCustomSong && (
               <label className="grid gap-2 text-sm font-bold">
                 <span>カスタムURL</span>
                 <input

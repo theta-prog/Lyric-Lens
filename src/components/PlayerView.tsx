@@ -133,10 +133,10 @@ const CameraBackdrop = memo(function CameraBackdrop({
 
   return (
     <div className="absolute inset-0 overflow-hidden bg-[linear-gradient(135deg,#fffefa_0%,#e8fbff_48%,#fff0b8_100%)]">
-      <div className="absolute left-[9%] top-[12%] h-28 w-28 rotate-[-10deg] border-[10px] border-cyan/55 bg-white/22 shadow-sketch" />
-      <div className="absolute right-[11%] top-[18%] h-20 w-36 rotate-[8deg] border-[8px] border-yellow/70 bg-white/22 shadow-sketch" />
-      <div className="absolute bottom-[15%] left-[14%] h-32 w-44 rotate-[5deg] border-[8px] border-ink/12 bg-white/16 shadow-sketch" />
-      <div className="absolute bottom-[11%] right-[12%] h-24 w-24 rotate-[-8deg] rounded-full border-[12px] border-cyan/30 bg-yellow/25" />
+      <div className="absolute left-[12%] top-[32%] h-[14%] max-h-18 min-h-12 w-[21%] max-w-18 rotate-[-10deg] border-[6px] border-cyan/32 bg-white/18 opacity-70 shadow-sketch sm:left-[10%] sm:top-[25%] sm:h-[18%] sm:max-h-24 sm:w-[24%] sm:max-w-24 sm:border-[8px]" />
+      <div className="absolute right-[5%] top-[31%] h-[11%] max-h-14 min-h-11 w-[36%] max-w-30 rotate-[8deg] border-[6px] border-yellow/45 bg-white/18 opacity-75 shadow-sketch sm:top-[26%] sm:h-[13%] sm:max-h-18 sm:max-w-36 sm:border-[7px]" />
+      <div className="absolute bottom-[13%] left-[8%] h-[21%] max-h-24 min-h-18 w-[47%] max-w-40 rotate-[3deg] border-[6px] border-ink/8 bg-white/14 opacity-65 shadow-sketch sm:bottom-[12%] sm:h-[23%] sm:max-h-28 sm:max-w-44 sm:border-[7px]" />
+      <div className="absolute bottom-[15%] right-[10%] h-[15%] max-h-18 min-h-12 w-[20%] max-w-18 rotate-[-8deg] rounded-full border-[8px] border-cyan/18 bg-yellow/18 opacity-75 sm:bottom-[14%] sm:h-[16%] sm:max-h-20 sm:max-w-20 sm:border-[9px]" />
       <div className="sketch-lines" aria-hidden="true" />
     </div>
   )
@@ -155,19 +155,19 @@ const ViewfinderOverlay = memo(function ViewfinderOverlay({
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
-      <div className="absolute inset-x-4 top-3 flex items-center justify-between font-display text-xl font-black text-ink/70 sm:inset-x-7">
+      <div className="absolute inset-x-5 top-4 flex items-center justify-between gap-3 font-display text-base font-black text-ink/70 sm:inset-x-7 sm:text-xl">
         <span>SS {formatSpeed(bpm)}</span>
         <span>f/1.8&nbsp;&nbsp;ISO AUTO</span>
       </div>
 
-      <div className="absolute inset-x-4 bottom-3 flex items-center justify-between font-display text-lg font-black text-ink/70 sm:inset-x-7">
+      <div className="absolute inset-x-5 bottom-4 flex items-center justify-between gap-3 font-display text-base font-black text-ink/70 sm:inset-x-7 sm:text-lg">
         <span className="max-w-[52%] truncate">{songTitle || 'shutter chance'}</span>
         <span className="text-yellow">● {String(shotCount).padStart(4, '0')}</span>
       </div>
 
       <motion.div
         key={afPulse}
-        className="absolute inset-[9%] border-2 border-dashed border-cyan/50"
+        className="absolute inset-x-[9%] bottom-[15%] top-[22%] border-2 border-dashed border-cyan/50 sm:inset-x-[9%] sm:bottom-[12%] sm:top-[13%]"
         animate={{ scale: [1, 0.985, 1] }}
         transition={{ duration: 0.34, ease: 'easeOut' }}
       >
@@ -302,6 +302,7 @@ const EffectOverlay = memo(function EffectOverlay({
 
 export default function PlayerView({ token, songUrl, songOptions, onFinish }: PlayerViewProps) {
   const mediaRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const capturesRef = useRef<CaptureItem[]>([])
   const phraseRef = useRef('')
@@ -345,6 +346,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
     if (shutterBusyRef.current) return
 
     shutterBusyRef.current = true
+    navigator.vibrate?.(30)
     setAfPulse(value => value + 1)
     await wait(50)
     setCurtainPhase('closing')
@@ -352,16 +354,20 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
 
     const phrase = phraseRef.current || wordRef.current || 'shutter chance'
     const frameNumber = capturesRef.current.length + 1
-    const dataUrl = captureFrame(
+    const frameRect = frameRef.current?.getBoundingClientRect()
+    const capturedFrame = captureFrame(
       camera.enabled && videoRef.current ? videoRef.current : null,
       phrase,
       songTitleRef.current,
       frameNumber,
+      frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
     )
 
     appendCapture({
       id: `${Date.now()}-${frameNumber}`,
-      dataUrl,
+      dataUrl: capturedFrame.dataUrl,
+      width: capturedFrame.width,
+      height: capturedFrame.height,
       phrase,
       timestamp: Date.now(),
       songPosition: songPositionRef.current,
@@ -522,7 +528,10 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
       />
 
       <div className="relative min-h-0 overflow-hidden p-3 md:p-5">
-        <div className="relative h-full min-h-[460px] overflow-hidden rounded-lg border-2 border-ink bg-white shadow-sketch">
+        <div
+          ref={frameRef}
+          className="relative h-full min-h-[360px] overflow-hidden rounded-lg border-2 border-ink bg-white shadow-sketch select-none touch-manipulation sm:min-h-[460px]"
+        >
           <motion.div
             className="absolute inset-0"
             animate={
@@ -550,11 +559,12 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
           <div className="absolute left-4 top-14 z-40 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void camera.toggle()}
-              className="rounded-md border-2 border-ink bg-white/72 px-3 py-2 text-xs font-black tracking-[0.12em] backdrop-blur transition hover:bg-white"
+              onClick={() => { void camera.toggle() }}
+              className="rounded-md border-2 border-ink bg-white/72 px-3 py-2 text-xs font-black tracking-[0.1em] backdrop-blur transition hover:bg-white"
               aria-pressed={camera.enabled}
+              aria-label="カメラのオンオフ"
             >
-              CAM
+              CAMERA
             </button>
             {error && (
               <div className="rounded-md border border-red-500 bg-white/90 px-3 py-2 text-xs font-bold text-red-700">

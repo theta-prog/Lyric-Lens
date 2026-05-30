@@ -1,88 +1,221 @@
-const W = 1280
-const H = 720
+interface CaptureSize {
+  width: number
+  height: number
+}
+
+export interface CapturedFrame {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+const DEFAULT_SIZE: CaptureSize = { width: 1080, height: 1920 }
+const EXPORT_LONG_SIDE = 1920
+
+function normalizeExportSize(size?: CaptureSize): CaptureSize {
+  if (!size || size.width <= 0 || size.height <= 0) {
+    return DEFAULT_SIZE
+  }
+
+  const aspect = size.width / size.height
+  const width = aspect >= 1 ? EXPORT_LONG_SIDE : Math.round(EXPORT_LONG_SIDE * aspect)
+  const height = aspect >= 1 ? Math.round(EXPORT_LONG_SIDE / aspect) : EXPORT_LONG_SIDE
+
+  return {
+    width: Math.max(1, width),
+    height: Math.max(1, height),
+  }
+}
 
 export function captureFrame(
   videoEl: HTMLVideoElement | null,
   phrase: string,
   songTitle: string,
   frameNumber: number,
-): string {
+  size?: CaptureSize,
+): CapturedFrame {
+  const { width, height } = normalizeExportSize(size)
   const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
+  canvas.width = width
+  canvas.height = height
   const ctx = canvas.getContext('2d')
 
   if (!ctx) {
-    return ''
+    return { dataUrl: '', width, height }
   }
 
-  renderBase(ctx, videoEl)
-  drawViewfinder(ctx)
-  drawLyrics(ctx, phrase)
-  drawHud(ctx, songTitle, frameNumber)
+  renderBase(ctx, width, height, videoEl)
+  drawViewfinder(ctx, width, height)
+  drawLyrics(ctx, width, height, phrase)
+  drawHud(ctx, width, height, songTitle, frameNumber)
 
-  return canvas.toDataURL('image/jpeg', 0.9)
+  return { dataUrl: canvas.toDataURL('image/jpeg', 0.9), width, height }
 }
 
-function renderBase(ctx: CanvasRenderingContext2D, videoEl: HTMLVideoElement | null) {
-  ctx.clearRect(0, 0, W, H)
+function renderBase(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  videoEl: HTMLVideoElement | null,
+) {
+  ctx.clearRect(0, 0, width, height)
 
   if (videoEl && videoEl.videoWidth > 0) {
+    const scale = Math.max(width / videoEl.videoWidth, height / videoEl.videoHeight)
+    const sw = videoEl.videoWidth * scale
+    const sh = videoEl.videoHeight * scale
+    const ox = (width - sw) / 2
+    const oy = (height - sh) / 2
     ctx.save()
-    ctx.translate(W, 0)
+    ctx.translate(width, 0)
     ctx.scale(-1, 1)
-    ctx.drawImage(videoEl, 0, 0, W, H)
+    ctx.drawImage(videoEl, ox, oy, sw, sh)
     ctx.restore()
     return
   }
 
-  const bg = ctx.createLinearGradient(0, 0, W, H)
+  const bg = ctx.createLinearGradient(0, 0, width, height)
   bg.addColorStop(0, '#fffef8')
   bg.addColorStop(0.44, '#e9fbff')
   bg.addColorStop(1, '#fff1b8')
   ctx.fillStyle = bg
-  ctx.fillRect(0, 0, W, H)
+  ctx.fillRect(0, 0, width, height)
 
-  ctx.globalAlpha = 0.28
-  for (let i = 0; i < 18; i += 1) {
-    ctx.beginPath()
-    ctx.arc((i * 97) % W, 90 + ((i * 73) % 460), 70 + (i % 4) * 22, 0, Math.PI * 2)
-    ctx.fillStyle = i % 2 === 0 ? '#3dd6e8' : '#f5c842'
-    ctx.fill()
-  }
-  ctx.globalAlpha = 1
+  drawCameraOffBackdrop(ctx, width, height)
 }
 
-function drawViewfinder(ctx: CanvasRenderingContext2D) {
+function drawCameraOffBackdrop(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const shortSide = Math.min(width, height)
+  drawSketchLine(ctx, width * -0.05, height, width * 0.22, 0, '#3dd6e8', 0.09, shortSide * 0.012)
+  drawSketchLine(ctx, width * 0.18, height, width * 0.44, 0, '#f5c842', 0.10, shortSide * 0.012)
+  drawSketchLine(ctx, width * 0.48, height, width * 0.73, 0, '#3dd6e8', 0.08, shortSide * 0.012)
+  drawSketchLine(ctx, width * 0.84, height, width * 1.08, 0, '#f5c842', 0.08, shortSide * 0.012)
+
+  drawRotatedFrame(ctx, {
+    x: width * 0.12,
+    y: height * 0.32,
+    width: width * 0.21,
+    height: height * 0.14,
+    angle: -10,
+    stroke: '#3dd6e8',
+    alpha: 0.32,
+    lineWidth: shortSide * 0.014,
+  })
+
+  drawRotatedFrame(ctx, {
+    x: width * 0.60,
+    y: height * 0.31,
+    width: width * 0.36,
+    height: height * 0.11,
+    angle: 8,
+    stroke: '#f5c842',
+    alpha: 0.42,
+    lineWidth: shortSide * 0.012,
+  })
+
+  drawRotatedFrame(ctx, {
+    x: width * 0.08,
+    y: height * 0.66,
+    width: width * 0.47,
+    height: height * 0.21,
+    angle: 3,
+    stroke: '#1a1a1f',
+    alpha: 0.08,
+    lineWidth: shortSide * 0.014,
+  })
+
+  ctx.save()
+  ctx.globalAlpha = 0.18
+  ctx.translate(width * 0.80, height * 0.76)
+  ctx.rotate((-8 * Math.PI) / 180)
+  ctx.fillStyle = '#f5c842'
+  ctx.strokeStyle = '#3dd6e8'
+  ctx.lineWidth = shortSide * 0.018
+  ctx.beginPath()
+  ctx.arc(0, 0, shortSide * 0.09, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
+function drawSketchLine(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  color: string,
+  alpha: number,
+  width: number,
+) {
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.strokeStyle = color
+  ctx.lineWidth = width
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  ctx.lineTo(x2, y2)
+  ctx.stroke()
+  ctx.restore()
+}
+
+function drawRotatedFrame(
+  ctx: CanvasRenderingContext2D,
+  frame: {
+    x: number
+    y: number
+    width: number
+    height: number
+    angle: number
+    stroke: string
+    alpha: number
+    lineWidth: number
+  },
+) {
+  ctx.save()
+  ctx.translate(frame.x + frame.width / 2, frame.y + frame.height / 2)
+  ctx.rotate((frame.angle * Math.PI) / 180)
+  ctx.globalAlpha = frame.alpha
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = frame.stroke
+  ctx.lineWidth = frame.lineWidth
+  ctx.fillRect(-frame.width / 2, -frame.height / 2, frame.width, frame.height)
+  ctx.strokeRect(-frame.width / 2, -frame.height / 2, frame.width, frame.height)
+  ctx.restore()
+}
+
+function drawViewfinder(ctx: CanvasRenderingContext2D, width: number, height: number) {
   ctx.save()
   ctx.strokeStyle = 'rgba(61, 214, 232, 0.45)'
   ctx.lineWidth = 2
   ctx.setLineDash([12, 16])
-  ctx.strokeRect(96, 64, W - 192, H - 128)
+  const insetX = width * 0.055
+  const insetY = height * 0.075
+  ctx.strokeRect(insetX, insetY, width - insetX * 2, height - insetY * 2)
   ctx.setLineDash([])
 
   ctx.strokeStyle = 'rgba(61, 214, 232, 0.24)'
-  for (const x of [W / 3, (W / 3) * 2]) {
+  for (const x of [width / 3, (width / 3) * 2]) {
     ctx.beginPath()
-    ctx.moveTo(x, 86)
-    ctx.lineTo(x, H - 86)
+    ctx.moveTo(x, insetY + 20)
+    ctx.lineTo(x, height - insetY - 20)
     ctx.stroke()
   }
-  for (const y of [H / 3, (H / 3) * 2]) {
+  for (const y of [height / 3, (height / 3) * 2]) {
     ctx.beginPath()
-    ctx.moveTo(116, y)
-    ctx.lineTo(W - 116, y)
+    ctx.moveTo(insetX + 20, y)
+    ctx.lineTo(width - insetX - 20, y)
     ctx.stroke()
   }
 
   ctx.strokeStyle = '#3dd6e8'
-  ctx.lineWidth = 5
-  const length = 74
-  const pad = 82
-  drawCorner(ctx, pad, pad, length, 1, 1)
-  drawCorner(ctx, W - pad, pad, length, -1, 1)
-  drawCorner(ctx, pad, H - pad, length, 1, -1)
-  drawCorner(ctx, W - pad, H - pad, length, -1, -1)
+  ctx.lineWidth = 6
+  const length = Math.min(width, height) * 0.085
+  const pad = Math.min(width, height) * 0.065
+  drawCorner(ctx, pad, pad + 50, length, 1, 1)
+  drawCorner(ctx, width - pad, pad + 50, length, -1, 1)
+  drawCorner(ctx, pad, height - pad - 50, length, 1, -1)
+  drawCorner(ctx, width - pad, height - pad - 50, length, -1, -1)
   ctx.restore()
 }
 
@@ -101,40 +234,51 @@ function drawCorner(
   ctx.stroke()
 }
 
-function drawLyrics(ctx: CanvasRenderingContext2D, phrase: string) {
+function drawLyrics(ctx: CanvasRenderingContext2D, width: number, height: number, phrase: string) {
   if (!phrase) return
 
   ctx.save()
   const text = phrase.trim()
-  const maxWidth = W * 0.76
-  const fontSize = text.length > 20 ? 44 : 58
+  const maxWidth = width * 0.82
+  const fontSize = Math.min(width, height) * (text.length > 20 ? 0.052 : 0.067)
   ctx.font = `900 ${fontSize}px "Noto Sans JP", sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
 
-  ctx.fillStyle = 'rgba(26, 26, 31, 0.62)'
-  roundRect(ctx, W * 0.14, H * 0.62, W * 0.72, 104, 12)
+  const boxH = Math.max(96, height * 0.09)
+  const boxY = height * 0.70
+  ctx.fillStyle = 'rgba(26, 26, 31, 0.66)'
+  roundRect(ctx, width * 0.08, boxY, width * 0.84, boxH, 16)
   ctx.fill()
 
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.38)'
-  ctx.shadowBlur = 10
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.42)'
+  ctx.shadowBlur = 14
   ctx.fillStyle = '#ffffff'
-  ctx.fillText(text, W / 2, H * 0.695, maxWidth)
+  ctx.fillText(text, width / 2, boxY + boxH / 2, maxWidth)
   ctx.restore()
 }
 
-function drawHud(ctx: CanvasRenderingContext2D, songTitle: string, frameNumber: number) {
+function drawHud(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  songTitle: string,
+  frameNumber: number,
+) {
   ctx.save()
-  ctx.font = '700 22px "Barlow Condensed", sans-serif'
+  const fontSize = Math.max(24, Math.min(width, height) * 0.028)
+  const inset = width * 0.055
+  ctx.font = `700 ${fontSize}px "Barlow Condensed", sans-serif`
+  ctx.textBaseline = 'middle'
   ctx.fillStyle = 'rgba(26, 26, 31, 0.78)'
-  ctx.fillText('SS 1/250', 76, 48)
+  ctx.fillText('SS 1/250', inset, height * 0.032)
   ctx.textAlign = 'right'
-  ctx.fillText('f/1.8  ISO AUTO', W - 76, 48)
+  ctx.fillText('f/1.8  ISO AUTO', width - inset, height * 0.032)
   ctx.textAlign = 'left'
-  ctx.fillText((songTitle || 'shutter chance').toUpperCase(), 76, H - 38)
+  ctx.fillText((songTitle || 'shutter chance').toUpperCase(), inset, height - height * 0.032)
   ctx.textAlign = 'right'
   ctx.fillStyle = '#f5c842'
-  ctx.fillText(`● ${String(frameNumber).padStart(4, '0')}`, W - 76, H - 38)
+  ctx.fillText(`● ${String(frameNumber).padStart(4, '0')}`, width - inset, height - height * 0.032)
   ctx.restore()
 }
 

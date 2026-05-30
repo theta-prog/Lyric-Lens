@@ -18,6 +18,30 @@ function downloadCapture(capture: CaptureItem, index: number) {
   link.click()
 }
 
+async function shareCapture(capture: CaptureItem, index: number) {
+  const filename = `shutter-chance-${String(index + 1).padStart(3, '0')}.jpg`
+
+  if (!('share' in navigator)) {
+    downloadCapture(capture, index)
+    return
+  }
+
+  try {
+    const res = await fetch(capture.dataUrl)
+    const blob = await res.blob()
+    const file = new File([blob], filename, { type: 'image/jpeg' })
+    const shareData = { files: [file], title: 'shutter chance', text: capture.phrase }
+
+    if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
+      await navigator.share(shareData)
+    } else {
+      downloadCapture(capture, index)
+    }
+  } catch {
+    // User cancelled — don't fall back to download
+  }
+}
+
 function FilmPerforation() {
   return (
     <div className="flex h-8 shrink-0 items-center gap-2 overflow-hidden bg-ink px-2" aria-hidden="true">
@@ -34,7 +58,7 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
       <header className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-ink bg-white px-4 py-4 sm:px-6">
         <div>
           <p className="font-display text-lg font-black tracking-[0.16em] text-cyan">
-            DEVELOPED
+            DEVELOPED FRAMES
           </p>
           <h1 className="font-display text-5xl font-black leading-none text-ink sm:text-7xl">
             現像完了
@@ -45,51 +69,68 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
         </div>
       </header>
 
-      <div className="min-h-0 overflow-auto px-4 py-5 sm:px-6">
+      <div className="min-h-0 overflow-auto">
         {captures.length === 0 ? (
-          <div className="grid h-full min-h-[360px] place-items-center rounded-lg border-2 border-dashed border-ink/40 bg-white/52">
-            <p className="font-display text-4xl font-black text-ink-light">NO FRAMES</p>
+          <div className="mx-4 my-5 grid h-full min-h-[360px] place-items-center rounded-lg border-2 border-dashed border-ink/40 bg-white/52">
+            <div className="text-center">
+              <p className="font-display text-4xl font-black text-ink-light">NO FRAMES</p>
+              <p className="mt-2 text-sm font-bold text-ink-light">シャッターを切るとここに現像されます</p>
+            </div>
           </div>
         ) : (
-          <div className="min-w-full overflow-x-auto pb-3">
-            <div className="inline-flex min-w-max flex-col border-2 border-ink bg-ink shadow-sketch">
-              <FilmPerforation />
-              <div className="flex gap-4 bg-ink px-4 py-4">
-                {captures.map((capture, index) => (
-                  <motion.article
-                    key={capture.id}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.045, duration: 0.28 }}
-                    className="w-[280px] shrink-0 overflow-hidden rounded-md border-2 border-paper bg-paper sm:w-[360px]"
-                  >
-                    <img
-                      src={capture.dataUrl}
-                      alt={`capture ${index + 1}`}
-                      className="aspect-video w-full object-cover"
-                    />
-                    <div className="grid gap-3 p-3">
-                      <div className="flex items-center justify-between gap-3 font-display text-xl font-black text-ink">
-                        <span>#{String(index + 1).padStart(3, '0')}</span>
-                        <span className="text-cyan">{formatSongTime(capture.songPosition)}</span>
-                      </div>
-                      <p className="line-clamp-2 min-h-[3rem] text-sm font-bold leading-relaxed text-ink">
-                        {capture.phrase}
-                      </p>
+          <>
+            <FilmPerforation />
+            {/* Camera-roll grid: 2-col mobile → 3-col tablet → 4-col desktop */}
+            <div
+              className={`grid gap-3 px-3 py-4 sm:px-4 ${
+                captures.length === 1
+                  ? 'mx-auto max-w-md grid-cols-1'
+                  : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
+              }`}
+            >
+              {captures.map((capture, index) => (
+                <motion.article
+                  key={capture.id}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.045, duration: 0.28 }}
+                  className="overflow-hidden rounded-md border-2 border-ink bg-paper shadow-sketch"
+                >
+                  <img
+                    src={capture.dataUrl}
+                    alt={`capture ${index + 1}`}
+                    className="w-full object-cover"
+                    style={{ aspectRatio: `${capture.width}/${capture.height}` }}
+                  />
+                  <div className="grid gap-2 p-2">
+                    <div className="flex items-center justify-between font-display text-xs font-black text-ink sm:text-sm">
+                      <span>#{String(index + 1).padStart(3, '0')}</span>
+                      <span className="text-cyan">{formatSongTime(capture.songPosition)}</span>
+                    </div>
+                    <p className="line-clamp-2 min-h-[2rem] text-xs font-bold leading-relaxed text-ink">
+                      {capture.phrase}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void shareCapture(capture, index)}
+                        className="h-9 rounded-md border-2 border-ink bg-cyan text-xs font-black tracking-[0.1em] text-ink transition hover:bg-cyan/80 touch-manipulation"
+                      >
+                        共有
+                      </button>
                       <button
                         type="button"
                         onClick={() => downloadCapture(capture, index)}
-                        className="h-10 rounded-md border-2 border-ink bg-yellow text-xs font-black tracking-[0.14em] text-ink transition hover:bg-white"
+                        className="h-9 rounded-md border-2 border-ink bg-yellow text-xs font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation"
                       >
-                        DOWNLOAD
+                        保存
                       </button>
                     </div>
-                  </motion.article>
-                ))}
-              </div>
-              <FilmPerforation />
+                  </div>
+                </motion.article>
+              ))}
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -97,9 +138,9 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
         <button
           type="button"
           onClick={onRestart}
-          className="h-12 rounded-md border-2 border-ink bg-paper px-5 text-sm font-black tracking-[0.14em] text-ink shadow-shutter transition hover:bg-white active:translate-y-1 active:shadow-none"
+          className="h-12 rounded-md border-2 border-ink bg-paper px-5 text-sm font-black tracking-[0.14em] text-ink shadow-shutter transition hover:bg-white active:translate-y-1 active:shadow-none touch-manipulation"
         >
-          RETAKE
+          撮り直す
         </button>
       </footer>
     </section>

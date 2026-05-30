@@ -35,7 +35,7 @@ export default function PlaybackBar({
   const value = dragValue ?? Math.round(progress * 1000)
 
   return (
-    <div className="border-t-2 border-ink bg-white/72 px-3 py-3 backdrop-blur md:px-5">
+    <div className="border-t-2 border-ink bg-white/72 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur md:px-5">
       <input
         type="range"
         min={0}
@@ -60,12 +60,16 @@ export default function PlaybackBar({
         className="w-full accent-yellow disabled:opacity-40"
       />
 
-      <div className="mt-3 flex items-center gap-2 sm:gap-3">
+      {/*
+        Two-row on mobile: controls top, shutter centered below.
+        Single row on sm+: all inline (shutter wrapper collapses to auto width).
+      */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
         <button
           type="button"
           onClick={isPlaying ? onPause : onPlay}
           disabled={!isLoaded}
-          className="control-button h-11 w-11 text-base"
+          className="control-button h-11 w-11 shrink-0 text-base touch-manipulation"
           aria-label={isPlaying ? '一時停止' : '再生'}
         >
           {isPlaying ? 'II' : '▶'}
@@ -74,37 +78,42 @@ export default function PlaybackBar({
         <button
           type="button"
           onClick={onToggleAutoMode}
-          className={`h-11 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition ${
+          className={`h-11 shrink-0 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition touch-manipulation ${
             autoMode ? 'bg-cyan text-ink' : 'bg-paper text-ink-light'
           }`}
           aria-pressed={autoMode}
+          aria-label="自動シャッター"
         >
           AUTO
         </button>
 
-        <div className="min-w-16 font-display text-2xl font-black tabular-nums text-ink">
+        <div className="min-w-10 shrink-0 font-display text-xl font-black tabular-nums text-ink sm:min-w-16 sm:text-2xl">
           {String(shotCount).padStart(3, '0')}
         </div>
 
-        <div className="flex-1" />
+        {/* Spacer: only active on sm+ to push DONE+shutter right */}
+        <div className="hidden flex-1 sm:block" />
 
         <button
           type="button"
           onClick={onFinish}
-          className="h-11 rounded-md border-2 border-ink bg-paper px-3 text-xs font-black tracking-[0.12em] text-ink transition hover:bg-white"
+          className="ml-auto h-11 shrink-0 rounded-md border-2 border-ink bg-paper px-4 text-sm font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation sm:ml-0"
         >
-          DONE
+          現像
         </button>
 
-        <button
-          type="button"
-          onClick={onShutter}
-          disabled={!isLoaded}
-          className="grid h-16 w-16 place-items-center rounded-full border-[6px] border-ink bg-white shadow-shutter transition enabled:active:translate-y-1 enabled:active:shadow-none disabled:opacity-40"
-          aria-label="シャッター"
-        >
-          <span className="block h-9 w-9 rounded-full bg-yellow ring-4 ring-cyan/40" />
-        </button>
+        {/* Shutter: wraps to its own centered row on mobile, inline on sm+ */}
+        <div className="order-last flex w-full justify-center pt-1 sm:order-none sm:w-auto sm:pt-0">
+          <button
+            type="button"
+            onClick={onShutter}
+            disabled={!isLoaded}
+            className="grid h-[4.5rem] w-[4.5rem] place-items-center rounded-full border-[6px] border-ink bg-white shadow-shutter transition touch-manipulation enabled:active:translate-y-1 enabled:active:shadow-none disabled:opacity-40 sm:h-16 sm:w-16"
+            aria-label="シャッター"
+          >
+            <span className="block h-10 w-10 rounded-full bg-yellow ring-4 ring-cyan/40 sm:h-9 sm:w-9" />
+          </button>
+        </div>
       </div>
     </div>
   )

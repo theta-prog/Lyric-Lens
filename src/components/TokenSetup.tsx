@@ -59,7 +59,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
         </div>
 
         <form
-          className="rounded-lg border-2 border-ink bg-white/82 p-5 shadow-sketch backdrop-blur sm:p-6"
+          className="rounded-lg border-2 border-ink bg-white/86 p-5 shadow-sketch backdrop-blur sm:p-6"
           onSubmit={event => {
             event.preventDefault()
             if (!canStart) return
@@ -69,6 +69,11 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             })
           }}
         >
+          <div className="mb-5 flex items-center justify-between border-b-2 border-ink pb-3 font-display text-lg font-black tracking-[0.08em] text-ink">
+            <span>ROLL 001</span>
+            <span className="text-cyan">TEXTALIVE</span>
+          </div>
+
           <div className="grid gap-4">
             {!HAS_TEXTALIVE_TOKEN && (
               <div className="rounded-md border-2 border-red-500 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
@@ -77,7 +82,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             )}
 
             <label className="grid gap-2 text-sm font-bold">
-              <span>Song URL</span>
+              <span>楽曲</span>
               <select
                 value={songIndex}
                 onChange={event => setSongIndex(Number(event.target.value))}
@@ -93,7 +98,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
 
             {songIndex === 1 && (
               <label className="grid gap-2 text-sm font-bold">
-                <span>Custom URL</span>
+                <span>カスタムURL</span>
                 <input
                   type="url"
                   value={customUrl}
@@ -107,9 +112,10 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             <button
               type="submit"
               disabled={!canStart}
-              className="mx-auto mt-3 grid h-28 w-28 place-items-center rounded-full border-[10px] border-ink bg-yellow text-sm font-black uppercase tracking-[0.18em] text-ink shadow-shutter transition enabled:hover:-translate-y-0.5 enabled:active:translate-y-1 enabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-40"
+              className="mx-auto mt-3 grid h-28 w-28 place-items-center rounded-full border-[10px] border-ink bg-yellow text-center text-sm font-black tracking-[0.08em] text-ink shadow-shutter transition enabled:hover:-translate-y-0.5 enabled:active:translate-y-1 enabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-40"
             >
-              start
+              撮影
+              <span className="block text-xs tracking-[0.12em]">START</span>
             </button>
           </div>
         </form>

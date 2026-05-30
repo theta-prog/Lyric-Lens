@@ -1127,6 +1127,16 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             >
               CAMERA
             </button>
+            {camera.enabled && (
+              <button
+                type="button"
+                onClick={() => { void camera.switchCamera() }}
+                className="rounded-md border-2 border-ink bg-white/72 px-3 py-2 text-xs font-black tracking-[0.1em] backdrop-blur transition hover:bg-white"
+                aria-label={camera.facingMode === 'user' ? '外カメに切り替え' : '内カメに切り替え'}
+              >
+                {camera.facingMode === 'user' ? '⇄ 外カメ' : '⇄ 内カメ'}
+              </button>
+            )}
             {error && (
               <div className="rounded-md border border-red-500 bg-white/90 px-3 py-2 text-xs font-bold text-red-700">
                 {error}

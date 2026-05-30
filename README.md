@@ -39,3 +39,4 @@ npm run preview
 - デフォルト曲 URL は `https://piapro.jp/t/PNpQ` です。
 - 開発サーバーでは Songle 取得用の Vite proxy を使います。
 - カメラを許可しない場合も、明るい仮想背景で撮影できます。
+- 曲ごとの演出と TextAlive データの使い方は [`docs/visual-system.md`](docs/visual-system.md) にまとめています。

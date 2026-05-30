@@ -1,6 +1,10 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
+function isSupportedSongleHost(hostname: string) {
+  return hostname === 'songle.jp' || hostname.endsWith('.songle.jp')
+}
+
 const songleDevProxy = (): Plugin => ({
   name: 'songle-dev-proxy',
   apply: 'serve',
@@ -23,7 +27,7 @@ const songleDevProxy = (): Plugin => ({
         }
 
         const targetHost = proxiedPath.slice(0, firstSlash)
-        if (!targetHost.endsWith('songle.jp')) {
+        if (!isSupportedSongleHost(targetHost)) {
           res.statusCode = 400
           res.end('Unsupported Songle host')
           return

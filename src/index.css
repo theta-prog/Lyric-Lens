@@ -43,6 +43,116 @@ select:focus-visible {
   background-size: 34px 34px, 34px 34px, auto, auto, auto;
 }
 
+@media (max-width: 480px) {
+  .setup-screen {
+    align-items: start;
+    padding: 18px 20px 16px;
+  }
+
+  .setup-brand {
+    margin-bottom: 18px;
+  }
+
+  .setup-logo {
+    width: 74px;
+    height: 48px;
+    margin-bottom: 10px;
+    border-width: 5px;
+  }
+
+  .setup-title {
+    font-size: 3.2rem;
+    line-height: 0.9;
+  }
+
+  .setup-tagline {
+    margin-top: 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.24em;
+  }
+
+  .setup-form {
+    padding: 16px;
+  }
+
+  .setup-roll {
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    font-size: 1rem;
+  }
+
+  .setup-fields {
+    gap: 12px;
+  }
+
+  .setup-note {
+    gap: 7px;
+    padding: 10px 12px;
+    font-size: 0.69rem;
+    line-height: 1.55;
+  }
+
+  .setup-note-head {
+    padding-bottom: 7px;
+    font-size: 0.78rem;
+  }
+
+  .setup-note-list {
+    gap: 6px;
+  }
+
+  .setup-start {
+    width: 6rem;
+    height: 6rem;
+    border-width: 8px;
+  }
+}
+
+@media (max-width: 480px) and (max-height: 760px) {
+  .setup-screen {
+    padding-top: 14px;
+    padding-bottom: 12px;
+  }
+
+  .setup-brand {
+    margin-bottom: 14px;
+  }
+
+  .setup-logo {
+    width: 64px;
+    height: 40px;
+    margin-bottom: 8px;
+    border-width: 4px;
+  }
+
+  .setup-title {
+    font-size: 2.9rem;
+  }
+
+  .setup-tagline {
+    margin-top: 8px;
+  }
+
+  .setup-form {
+    padding: 14px;
+  }
+
+  .setup-roll {
+    margin-bottom: 12px;
+  }
+
+  .setup-note {
+    font-size: 0.66rem;
+    line-height: 1.45;
+  }
+
+  .setup-start {
+    width: 5.5rem;
+    height: 5.5rem;
+    border-width: 7px;
+  }
+}
+
 .shadow-sketch {
   box-shadow: 8px 8px 0 rgba(26, 26, 31, 0.16);
 }

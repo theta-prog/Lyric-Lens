@@ -47,6 +47,12 @@ const PRESET_SONGS: readonly PresetSong[] = [
   },
 ]
 
+const BEFORE_SHOOTING_NOTES = [
+  'カメラ映像と撮影画像はブラウザ内で処理され、サーバーには送信されません。',
+  '保存・共有を選んだ場合のみ、端末や共有先に画像が渡ります。',
+  '周囲の迷惑にならないよう、個人情報や他の人の写り込みに気をつけて使ってください。',
+] as const
+
 interface TokenSetupProps {
   onStart: (config: SetupConfig) => void
 }
@@ -61,26 +67,26 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
   const canStart = HAS_TEXTALIVE_TOKEN && songUrl.trim() !== ''
 
   return (
-    <section className="relative grid min-h-dvh place-items-center overflow-hidden px-4 py-8 sm:px-6">
+    <section className="setup-screen relative grid min-h-dvh place-items-center overflow-hidden px-4 py-8 sm:px-6">
       <div className="absolute inset-0 setup-paper" aria-hidden="true" />
       <div className="absolute inset-x-0 top-0 h-2 bg-[linear-gradient(90deg,#3dd6e8,#f5c842,#3dd6e8)]" />
 
       <div className="relative w-full max-w-xl min-w-0">
-        <div className="mb-7 text-center">
-          <div className="mx-auto mb-4 h-16 w-24 rotate-[-6deg] border-[6px] border-ink bg-white shadow-sketch">
+        <div className="setup-brand mb-7 text-center">
+          <div className="setup-logo mx-auto mb-4 h-16 w-24 rotate-[-6deg] border-[6px] border-ink bg-white shadow-sketch">
             <div className="h-full w-full border-2 border-cyan" />
           </div>
-          <h1 className="font-display text-[4rem] font-black leading-none text-ink sm:text-[5.6rem]">
+          <h1 className="setup-title font-display text-[4rem] font-black leading-none text-ink sm:text-[5.6rem]">
             Lyric
             <span className="block text-cyan drop-shadow-[3px_3px_0_#f5c842]">Lens</span>
           </h1>
-          <p className="mt-3 text-sm font-bold tracking-[0.28em] text-ink-light">
+          <p className="setup-tagline mt-3 text-sm font-bold tracking-[0.28em] text-ink-light">
             CAPTURE THE VERSE
           </p>
         </div>
 
         <form
-          className="min-w-0 rounded-lg border-2 border-ink bg-white/86 p-5 shadow-sketch backdrop-blur sm:p-6"
+          className="setup-form min-w-0 rounded-lg border-2 border-ink bg-white/86 p-5 shadow-sketch backdrop-blur sm:p-6"
           onSubmit={event => {
             event.preventDefault()
             if (!canStart) return
@@ -90,12 +96,12 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             })
           }}
         >
-          <div className="mb-5 flex min-w-0 items-center justify-between gap-4 border-b-2 border-ink pb-3 font-display text-lg font-black tracking-[0.08em] text-ink">
+          <div className="setup-roll mb-5 flex min-w-0 items-center justify-between gap-4 border-b-2 border-ink pb-3 font-display text-lg font-black tracking-[0.08em] text-ink">
             <span>ROLL 001</span>
             <span className="text-cyan">TEXTALIVE</span>
           </div>
 
-          <div className="grid gap-4">
+          <div className="setup-fields grid gap-4">
             {!HAS_TEXTALIVE_TOKEN && (
               <div className="rounded-md border-2 border-red-500 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
                 .env に VITE_TEXTALIVE_TOKEN を設定して、開発サーバーを再起動してください。
@@ -130,10 +136,28 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
               </label>
             )}
 
+            <section
+              className="setup-note grid gap-2 rounded-md border-2 border-ink bg-paper px-3 py-3 text-xs font-bold leading-relaxed text-ink"
+              aria-labelledby="before-shooting"
+            >
+              <div className="setup-note-head flex items-center justify-between gap-3 border-b border-ink/20 pb-2 font-display text-sm font-black tracking-[0.1em]">
+                <h2 id="before-shooting">撮影前メモ</h2>
+                <span className="shrink-0 text-cyan">LOCAL ONLY</span>
+              </div>
+              <ul className="setup-note-list grid gap-1.5">
+                {BEFORE_SHOOTING_NOTES.map(note => (
+                  <li key={note} className="grid grid-cols-[0.9rem_1fr] gap-2">
+                    <span className="pt-[0.08rem] text-cyan" aria-hidden="true">●</span>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
             <button
               type="submit"
               disabled={!canStart}
-              className="mx-auto mt-3 grid h-28 w-28 place-items-center rounded-full border-[10px] border-ink bg-yellow text-center text-sm font-black tracking-[0.08em] text-ink shadow-shutter transition enabled:hover:-translate-y-0.5 enabled:active:translate-y-1 enabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-40"
+              className="setup-start mx-auto mt-1 grid h-28 w-28 place-items-center rounded-full border-[10px] border-ink bg-yellow text-center text-sm font-black tracking-[0.08em] text-ink shadow-shutter transition enabled:hover:-translate-y-0.5 enabled:active:translate-y-1 enabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-40"
             >
               撮影
               <span className="block text-xs tracking-[0.12em]">START</span>

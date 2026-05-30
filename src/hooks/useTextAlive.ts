@@ -6,14 +6,18 @@ const DEBUG_LYRICS_QUERY = 'debugLyrics'
 
 let songleProxyInstalled = false
 
-function rewriteSongleUrlForDev(url: string) {
-  if (!import.meta.env.DEV || typeof window === 'undefined') {
+function isSupportedSongleHost(hostname: string) {
+  return hostname === 'songle.jp' || hostname.endsWith('.songle.jp')
+}
+
+function rewriteSongleUrlForProxy(url: string) {
+  if (typeof window === 'undefined') {
     return url
   }
 
   try {
     const resolved = new URL(url, window.location.origin)
-    if (!resolved.hostname.endsWith('songle.jp')) {
+    if (!isSupportedSongleHost(resolved.hostname)) {
       return url
     }
 
@@ -23,8 +27,8 @@ function rewriteSongleUrlForDev(url: string) {
   }
 }
 
-function installSongleDevProxy() {
-  if (!import.meta.env.DEV || songleProxyInstalled || typeof window === 'undefined') {
+function installSongleProxy() {
+  if (songleProxyInstalled || typeof window === 'undefined') {
     return
   }
 
@@ -39,8 +43,8 @@ function installSongleDevProxy() {
   ) {
     const nextUrl =
       typeof url === 'string'
-        ? rewriteSongleUrlForDev(url)
-        : rewriteSongleUrlForDev(url.toString())
+        ? rewriteSongleUrlForProxy(url)
+        : rewriteSongleUrlForProxy(url.toString())
 
     return originalOpen.call(this, method, nextUrl, async ?? true, username ?? undefined, password ?? undefined)
   }
@@ -214,7 +218,7 @@ export function useTextAlive(
     const mediaElement = mediaRef.current
     if (!mediaElement) return
 
-    installSongleDevProxy()
+    installSongleProxy()
 
     let disposed = false
     debugLyricsRef.current = shouldDebugLyrics()

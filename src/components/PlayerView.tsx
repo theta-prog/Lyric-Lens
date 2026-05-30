@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCamera } from '../hooks/useCamera'
 import { useTextAlive } from '../hooks/useTextAlive'
 import type { CaptureItem, CurtainPhase, ShutterEffect } from '../types'
-import { captureFrame } from '../utils/capture'
+import { captureFrame, type CaptureFilter } from '../utils/capture'
 import PlaybackBar from './PlaybackBar'
 
 interface LyricTrigger {
@@ -109,6 +109,126 @@ function findColorKeyword(text: string): number | null {
     if (normalized.includes(normalizeText(word))) return hue
   }
   return null
+}
+
+const CHORD_ROOT_HUES: Record<string, number> = {
+  C: 48,
+  'C#': 70,
+  Db: 70,
+  D: 92,
+  'D#': 128,
+  Eb: 128,
+  E: 155,
+  F: 185,
+  'F#': 205,
+  Gb: 205,
+  G: 224,
+  'G#': 252,
+  Ab: 252,
+  A: 286,
+  'A#': 322,
+  Bb: 322,
+  B: 352,
+}
+
+function getChordHue(chordName: string) {
+  const match = chordName.match(/^[A-G](?:#|b)?/)
+  if (!match) return null
+  return CHORD_ROOT_HUES[match[0]] ?? null
+}
+
+interface MoodVisualSettings {
+  canvasFilter: string
+  tintHue: number
+  tintSaturation: number
+  tintLightness: number
+  tintOpacity: number
+}
+
+function getMoodVisualSettings({
+  valenceArousal,
+  songMedianValenceArousal,
+  songPersonality,
+  bpm,
+  lyricColorHue,
+  currentChordName,
+  isChorus,
+  vocalIntensity,
+}: {
+  valenceArousal: { v: number; a: number } | null
+  songMedianValenceArousal: { v: number; a: number } | null
+  songPersonality: { hue: number; strength: number } | null
+  bpm: number
+  lyricColorHue: number | null
+  currentChordName: string
+  isChorus: boolean
+  vocalIntensity: number
+}): MoodVisualSettings {
+  const effectiveVA = valenceArousal ?? songMedianValenceArousal
+  const arousal = effectiveVA?.a ?? 0
+  const valence = effectiveVA?.v ?? 0
+  const chordHue = getChordHue(currentChordName)
+  const chorusBoost = isChorus ? 0.08 : 0
+  const vocalBoost = Math.min(0.12, vocalIntensity * 0.12)
+  const bpmFactor = bpm > 0 ? Math.min(1, Math.max(0, (bpm - 45) / 95)) : 0
+  const energyLevel = effectiveVA
+    ? Math.max(0, arousal)
+    : (songPersonality?.strength ?? 0.20) * 1.0
+
+  if (songPersonality) {
+    const { hue: pHue, strength: pStr } = songPersonality
+    const isWarm = pHue < 100 || pHue > 300
+    const tintHue = lyricColorHue !== null ? lyricColorHue : (chordHue ?? pHue)
+    const tintSaturation = Math.round(68 + vocalIntensity * 14)
+    const tintBase = Math.min(0.30, pStr + bpmFactor * 0.04 + energyLevel * 0.03)
+    const tintOpacity = lyricColorHue !== null
+      ? Math.max(tintBase + chorusBoost + vocalBoost, 0.22)
+      : Math.min(0.42, tintBase + chorusBoost + vocalBoost)
+    const hueRotate = isWarm
+      ? Math.round(-pStr * 35 - energyLevel * 12)
+      : Math.round(pStr * 35 + energyLevel * 8)
+    const saturate = Math.min(190, Math.round(85 + energyLevel * 70 + bpmFactor * 40 + vocalIntensity * 28))
+    const contrast = Math.round(100 + bpmFactor * 12 + energyLevel * 5 + vocalIntensity * 8)
+    const brightness = Math.round(98 + valence * 4)
+
+    return {
+      canvasFilter: `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`,
+      tintHue,
+      tintSaturation,
+      tintLightness: 52,
+      tintOpacity,
+    }
+  }
+
+  const hasData = Boolean(effectiveVA) || bpm > 0
+  const energyFactor = Math.min(1, bpmFactor + Math.max(0, arousal) * 0.7)
+  const hueRotate = Math.round((-25 + (1 - (valence + 1) / 2) * 65) - energyFactor * 40)
+  const saturate = Math.min(260, Math.round(55 + ((arousal + 1) / 2) * 130 + energyFactor * 80))
+  const contrast = Math.round(100 + energyFactor * 20)
+  const brightness = Math.round(96 + ((valence + 1) / 2) * 9 - Math.max(0, -arousal) * 6)
+  const baseHue = 45 + (1 - (valence + 1) / 2) * 175
+  const redPull = Math.min(0.9, energyFactor * 0.75 + Math.max(0, arousal) * 0.2)
+  const moodHue = Math.round(baseHue * (1 - redPull) + 5 * redPull)
+  const satTint = Math.min(92, Math.round(18 + ((arousal + 1) / 2) * 52 + energyFactor * 30))
+  const baseOpacity = effectiveVA
+    ? Math.max(0.05, 0.04 + Math.abs(valence) * 0.12 + Math.abs(arousal) * 0.10)
+    : bpmFactor * 0.10
+  const moodOpacity = Math.min(0.42, baseOpacity + energyFactor * 0.16)
+  const tintHue = lyricColorHue !== null ? lyricColorHue : (chordHue ?? moodHue)
+  const tintSaturation = lyricColorHue !== null ? 80 : satTint
+  const tintOpacity = lyricColorHue !== null
+    ? Math.max(Math.min(0.48, moodOpacity + chorusBoost + vocalBoost), 0.30)
+    : Math.min(0.48, moodOpacity + chorusBoost + vocalBoost)
+
+  return {
+    canvasFilter: hasData
+      ? `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`
+      : 'none',
+    tintHue,
+    tintSaturation,
+    tintLightness: 54,
+    tintOpacity,
+  }
 }
 
 // Each preset song has a distinct color identity.
@@ -220,11 +340,17 @@ const ViewfinderOverlay = memo(function ViewfinderOverlay({
   bpm,
   songTitle,
   shotCount,
+  currentChordName,
+  isChorus,
+  vocalIntensity,
 }: {
   afPulse: number
   bpm: number
   songTitle: string
   shotCount: number
+  currentChordName: string
+  isChorus: boolean
+  vocalIntensity: number
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
@@ -238,9 +364,17 @@ const ViewfinderOverlay = memo(function ViewfinderOverlay({
         <span className="text-yellow">● {String(shotCount).padStart(4, '0')}</span>
       </div>
 
+      <div className="absolute right-5 top-14 grid min-w-24 gap-1 border border-ink/25 bg-white/58 px-2 py-1 font-display text-[0.72rem] font-black leading-tight text-ink/70 sm:right-7 sm:top-16 sm:text-sm">
+        <span>{isChorus ? 'CHORUS' : 'VERSE'}</span>
+        <span>{currentChordName || '--'}</span>
+        <span>VOX {String(Math.round(vocalIntensity * 99)).padStart(2, '0')}</span>
+      </div>
+
       <motion.div
         key={afPulse}
-        className="absolute inset-x-[9%] bottom-[15%] top-[22%] border-2 border-dashed border-cyan/50 sm:inset-x-[9%] sm:bottom-[12%] sm:top-[13%]"
+        className={`absolute inset-x-[9%] bottom-[15%] top-[22%] border-2 border-dashed sm:inset-x-[9%] sm:bottom-[12%] sm:top-[13%] ${
+          isChorus ? 'border-yellow/70' : 'border-cyan/50'
+        }`}
         animate={{ scale: [1, 0.985, 1] }}
         transition={{ duration: 0.34, ease: 'easeOut' }}
       >
@@ -271,7 +405,7 @@ const LyricDisplay = memo(function LyricDisplay({ phrase, word }: { phrase: stri
       <motion.div
         initial={false}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-[min(920px,92vw)] rounded-md border border-white/16 bg-ink/68 px-5 py-3 text-center shadow-[0_18px_48px_rgba(0,0,0,0.2)] backdrop-blur sm:px-8 sm:py-4"
+        className="max-w-[min(920px,92vw)] rounded-md border border-white/16 bg-[rgba(26,26,31,0.68)] px-5 py-3 text-center shadow-[0_18px_48px_rgba(0,0,0,0.2)] sm:px-8 sm:py-4"
       >
         <p className="text-balance text-2xl font-black leading-snug text-cyan sm:text-4xl lg:text-5xl">
           <span className="opacity-60">{segments.before}</span>
@@ -523,96 +657,37 @@ const MoodColorOverlay = memo(function MoodColorOverlay({
   songPersonality,
   bpm,
   lyricColorHue,
+  currentChordName,
+  isChorus,
+  vocalIntensity,
 }: {
   valenceArousal: { v: number; a: number } | null
   songMedianValenceArousal: { v: number; a: number } | null
   songPersonality: { hue: number; strength: number } | null
   bpm: number
   lyricColorHue: number | null
+  currentChordName: string
+  isChorus: boolean
+  vocalIntensity: number
 }) {
-  const effectiveVA = valenceArousal ?? songMedianValenceArousal
-  const arousal = effectiveVA?.a ?? 0
-  const valence = effectiveVA?.v ?? 0
-
-  // BPM factor: 0 at BPM≤45, 1 at BPM≥140
-  const bpmFactor = bpm > 0 ? Math.min(1, Math.max(0, (bpm - 45) / 95)) : 0
-
-  // Energy level: live arousal if VA available, else estimate from personality
-  const energyLevel = effectiveVA
-    ? Math.max(0, arousal)
-    : (songPersonality?.strength ?? 0.20) * 1.0
-
-  if (songPersonality) {
-    // === Personality-based mode (known preset songs) ===
-    const { hue: pHue, strength: pStr } = songPersonality
-    const isWarm = pHue < 100 || pHue > 300 // red/orange/yellow/pink zone
-
-    const tintHue = lyricColorHue !== null ? lyricColorHue : pHue
-    const tintSat = 68
-    const tintBase = Math.min(0.30, pStr + bpmFactor * 0.04 + energyLevel * 0.03)
-    const tintOpacity = lyricColorHue !== null ? Math.max(tintBase, 0.22) : tintBase
-
-    // Backdrop: gentle push toward personality direction
-    const hueRotate = isWarm
-      ? Math.round(-pStr * 35 - energyLevel * 12) // negative = warm
-      : Math.round(pStr * 35 + energyLevel * 8)   // positive = cool
-    const saturate = Math.min(165, Math.round(85 + energyLevel * 70 + bpmFactor * 40))
-    const contrast  = Math.round(100 + bpmFactor * 12 + energyLevel * 5)
-    const brightness = Math.round(98 + valence * 4)
-
-    return (
-      <>
-        <div
-          className="pointer-events-none absolute inset-0 z-10"
-          style={{
-            backdropFilter: `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`,
-            WebkitBackdropFilter: `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`,
-            transition: 'backdrop-filter 0.8s ease-in-out, -webkit-backdrop-filter 0.8s ease-in-out',
-          }}
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute inset-0 z-10"
-          style={{
-            backgroundColor: `hsl(${tintHue}deg ${tintSat}% 52%)`,
-            opacity: tintOpacity,
-            transition: 'background-color 0.4s ease-in-out, opacity 0.4s ease-in-out',
-          }}
-          aria-hidden
-        />
-      </>
-    )
-  }
-
-  // === VA/BPM-only mode (custom/unknown songs) ===
-  const hasData = Boolean(effectiveVA) || bpm > 0
-  const energyFactor = Math.min(1, bpmFactor + Math.max(0, arousal) * 0.7)
-  const hueRotate = Math.round((-25 + (1 - (valence + 1) / 2) * 65) - energyFactor * 40)
-  const saturate  = Math.min(260, Math.round(55 + ((arousal + 1) / 2) * 130 + energyFactor * 80))
-  const contrast  = Math.round(100 + energyFactor * 20)
-  const brightness = Math.round(96 + ((valence + 1) / 2) * 9 - Math.max(0, -arousal) * 6)
-  const backdropFilterValue = hasData
-    ? `hue-rotate(${hueRotate}deg) saturate(${saturate}%) contrast(${contrast}%) brightness(${brightness}%)`
-    : 'none'
-  const baseHue = 45 + (1 - (valence + 1) / 2) * 175
-  const redPull = Math.min(0.9, energyFactor * 0.75 + Math.max(0, arousal) * 0.2)
-  const moodHue = Math.round(baseHue * (1 - redPull) + 5 * redPull)
-  const satTint = Math.min(92, Math.round(18 + ((arousal + 1) / 2) * 52 + energyFactor * 30))
-  const baseOpacity = effectiveVA
-    ? Math.max(0.05, 0.04 + Math.abs(valence) * 0.12 + Math.abs(arousal) * 0.10)
-    : bpmFactor * 0.10
-  const moodOpacity = Math.min(0.42, baseOpacity + energyFactor * 0.16)
-  const activeTintHue     = lyricColorHue !== null ? lyricColorHue : moodHue
-  const activeTintSat     = lyricColorHue !== null ? 80 : satTint
-  const activeTintOpacity = lyricColorHue !== null ? Math.max(moodOpacity, 0.30) : moodOpacity
+  const visualSettings = getMoodVisualSettings({
+    valenceArousal,
+    songMedianValenceArousal,
+    songPersonality,
+    bpm,
+    lyricColorHue,
+    currentChordName,
+    isChorus,
+    vocalIntensity,
+  })
 
   return (
     <>
       <div
         className="pointer-events-none absolute inset-0 z-10"
         style={{
-          backdropFilter: backdropFilterValue,
-          WebkitBackdropFilter: backdropFilterValue,
+          backdropFilter: visualSettings.canvasFilter,
+          WebkitBackdropFilter: visualSettings.canvasFilter,
           transition: 'backdrop-filter 0.8s ease-in-out, -webkit-backdrop-filter 0.8s ease-in-out',
         }}
         aria-hidden
@@ -620,13 +695,67 @@ const MoodColorOverlay = memo(function MoodColorOverlay({
       <div
         className="pointer-events-none absolute inset-0 z-10"
         style={{
-          backgroundColor: `hsl(${activeTintHue}deg ${activeTintSat}% 54%)`,
-          opacity: activeTintOpacity,
+          backgroundColor: `hsl(${visualSettings.tintHue}deg ${visualSettings.tintSaturation}% ${visualSettings.tintLightness}%)`,
+          opacity: visualSettings.tintOpacity,
           transition: 'background-color 0.4s ease-in-out, opacity 0.4s ease-in-out',
         }}
         aria-hidden
       />
     </>
+  )
+})
+
+const MusicSignalOverlay = memo(function MusicSignalOverlay({
+  currentChordName,
+  isChorus,
+  chorusProgress,
+  vocalIntensity,
+}: {
+  currentChordName: string
+  isChorus: boolean
+  chorusProgress: number
+  vocalIntensity: number
+}) {
+  const chordHue = getChordHue(currentChordName) ?? 190
+  const meter = Math.max(0.06, vocalIntensity)
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[19]" aria-hidden="true">
+      {isChorus && (
+        <>
+          <div className="absolute inset-[4%] border-[6px] border-yellow/28" />
+          <div
+            className="absolute left-[4%] right-[4%] top-[4%] h-1 bg-yellow/80"
+            style={{ transform: `scaleX(${Math.max(0.08, chorusProgress)})`, transformOrigin: 'left' }}
+          />
+        </>
+      )}
+
+      {currentChordName && (
+        <div
+          className="absolute bottom-[11%] left-[8%] h-1.5 w-[28%] max-w-56"
+          style={{ backgroundColor: `hsl(${chordHue}deg 82% 54% / 0.72)` }}
+        />
+      )}
+
+      <div className="absolute bottom-[16%] right-[7%] flex h-20 items-end gap-1">
+        {Array.from({ length: 5 }).map((_, index) => {
+          const threshold = (index + 1) / 5
+          const opacity = meter >= threshold ? 0.82 : 0.22
+          return (
+            <span
+              key={index}
+              className="w-1.5 bg-white"
+              style={{
+                height: `${18 + index * 13}%`,
+                opacity,
+                boxShadow: meter >= threshold ? '0 0 12px rgba(245, 200, 66, 0.56)' : 'none',
+              }}
+            />
+          )
+        })}
+      </div>
+    </div>
   )
 })
 
@@ -642,6 +771,8 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   const bpmRef = useRef(0)
   const isPlayingRef = useRef(false)
   const autoModeRef = useRef(true)
+  const filterEnabledRef = useRef(true)
+  const captureFilterRef = useRef<CaptureFilter | null>(null)
   const lastAutoRef = useRef({ text: '', time: 0 })
   const shutterBusyRef = useRef(false)
   const countdownBusyRef = useRef(false)
@@ -657,6 +788,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   const [activeEffect, setActiveEffect] = useState<ShutterEffect | null>(null)
   const [effectKey, setEffectKey] = useState(0)
   const [lyricColorHue, setLyricColorHue] = useState<number | null>(null)
+  const [filterEnabled, setFilterEnabled] = useState(true)
   const colorHueTimerRef = useRef<number | undefined>(undefined)
 
   const camera = useCamera()
@@ -680,31 +812,51 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
     if (shutterBusyRef.current) return
 
     shutterBusyRef.current = true
+    const phraseSnapshot = phraseRef.current || wordRef.current || 'shutter chance'
+    const wordSnapshot = wordRef.current
+    const songPositionSnapshot = songPositionRef.current
+    const filterSnapshot = captureFilterRef.current
+    const shouldUseFilteredFrame = filterEnabledRef.current && filterSnapshot
     navigator.vibrate?.(30)
     setAfPulse(value => value + 1)
     await wait(50)
     setCurtainPhase('closing')
     await wait(90)
 
-    const phrase = phraseRef.current || wordRef.current || 'shutter chance'
     const frameNumber = capturesRef.current.length + 1
     const frameRect = frameRef.current?.getBoundingClientRect()
-    const capturedFrame = captureFrame(
+    const rawFrame = captureFrame(
       camera.enabled && videoRef.current ? videoRef.current : null,
-      phrase,
+      phraseSnapshot,
+      wordSnapshot,
       songTitleRef.current,
       frameNumber,
       frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
+      null,
     )
+    const filteredFrame = filterSnapshot
+      ? captureFrame(
+          camera.enabled && videoRef.current ? videoRef.current : null,
+          phraseSnapshot,
+          wordSnapshot,
+          songTitleRef.current,
+          frameNumber,
+          frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
+          filterSnapshot,
+        )
+      : rawFrame
+    const selectedFrame = shouldUseFilteredFrame ? filteredFrame : rawFrame
 
     appendCapture({
       id: `${Date.now()}-${frameNumber}`,
-      dataUrl: capturedFrame.dataUrl,
-      width: capturedFrame.width,
-      height: capturedFrame.height,
-      phrase,
+      dataUrl: selectedFrame.dataUrl,
+      rawDataUrl: rawFrame.dataUrl,
+      filteredDataUrl: filteredFrame.dataUrl,
+      width: selectedFrame.width,
+      height: selectedFrame.height,
+      phrase: phraseSnapshot,
       timestamp: Date.now(),
-      songPosition: songPositionRef.current,
+      songPosition: songPositionSnapshot,
     })
 
     setFlashKey(value => value + 1)
@@ -813,6 +965,10 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
     error,
     currentValenceArousal,
     songMedianValenceArousal,
+    currentChordName,
+    isChorus,
+    chorusProgress,
+    vocalIntensity,
     play,
     pause,
     seek,
@@ -836,6 +992,38 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   bpmRef.current = bpm
   isPlayingRef.current = isPlaying
   autoModeRef.current = autoMode
+  filterEnabledRef.current = filterEnabled
+
+  const captureFilter = useMemo<CaptureFilter>(() => {
+    const visualSettings = getMoodVisualSettings({
+      valenceArousal: currentValenceArousal,
+      songMedianValenceArousal,
+      songPersonality,
+      bpm,
+      lyricColorHue,
+      currentChordName,
+      isChorus,
+      vocalIntensity,
+    })
+
+    return {
+      canvasFilter: visualSettings.canvasFilter,
+      tintHue: visualSettings.tintHue,
+      tintSaturation: visualSettings.tintSaturation,
+      tintLightness: visualSettings.tintLightness,
+      tintOpacity: visualSettings.tintOpacity,
+    }
+  }, [
+    bpm,
+    currentChordName,
+    currentValenceArousal,
+    isChorus,
+    lyricColorHue,
+    songMedianValenceArousal,
+    songPersonality,
+    vocalIntensity,
+  ])
+  captureFilterRef.current = captureFilter
 
   const finish = useCallback(() => {
     if (finishedRef.current) return
@@ -895,12 +1083,24 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_44%,transparent_0%,transparent_57%,rgba(26,26,31,0.18)_100%)]" />
           </motion.div>
 
-          <MoodColorOverlay
-            valenceArousal={currentValenceArousal}
-            songMedianValenceArousal={songMedianValenceArousal}
-            songPersonality={songPersonality}
-            bpm={bpm}
-            lyricColorHue={lyricColorHue}
+          {filterEnabled && (
+            <MoodColorOverlay
+              valenceArousal={currentValenceArousal}
+              songMedianValenceArousal={songMedianValenceArousal}
+              songPersonality={songPersonality}
+              bpm={bpm}
+              lyricColorHue={lyricColorHue}
+              currentChordName={currentChordName}
+              isChorus={isChorus}
+              vocalIntensity={vocalIntensity}
+            />
+          )}
+
+          <MusicSignalOverlay
+            currentChordName={currentChordName}
+            isChorus={isChorus}
+            chorusProgress={chorusProgress}
+            vocalIntensity={vocalIntensity}
           />
 
           <ViewfinderOverlay
@@ -908,6 +1108,9 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             bpm={bpm}
             songTitle={songTitle}
             shotCount={captures.length}
+            currentChordName={currentChordName}
+            isChorus={isChorus}
+            vocalIntensity={vocalIntensity}
           />
           <LyricDisplay phrase={currentPhrase} word={currentWord} />
           <CountdownOverlay value={countdownValue} />
@@ -952,6 +1155,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
         progress={progress}
         shotCount={captures.length}
         autoMode={autoMode}
+        filterEnabled={filterEnabled}
         onPlay={play}
         onPause={pause}
         onShutter={handleManualShutter}
@@ -959,6 +1163,13 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
           setAutoMode(value => {
             const nextValue = !value
             autoModeRef.current = nextValue
+            return nextValue
+          })
+        }}
+        onToggleFilter={() => {
+          setFilterEnabled(value => {
+            const nextValue = !value
+            filterEnabledRef.current = nextValue
             return nextValue
           })
         }}

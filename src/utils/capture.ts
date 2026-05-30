@@ -9,6 +9,14 @@ export interface CapturedFrame {
   height: number
 }
 
+export interface CaptureFilter {
+  canvasFilter?: string
+  tintHue: number
+  tintSaturation: number
+  tintLightness: number
+  tintOpacity: number
+}
+
 const DEFAULT_SIZE: CaptureSize = { width: 1080, height: 1920 }
 const EXPORT_LONG_SIDE = 1920
 
@@ -30,9 +38,11 @@ function normalizeExportSize(size?: CaptureSize): CaptureSize {
 export function captureFrame(
   videoEl: HTMLVideoElement | null,
   phrase: string,
+  activeWord: string,
   songTitle: string,
   frameNumber: number,
   size?: CaptureSize,
+  filter?: CaptureFilter | null,
 ): CapturedFrame {
   const { width, height } = normalizeExportSize(size)
   const canvas = document.createElement('canvas')
@@ -44,9 +54,10 @@ export function captureFrame(
     return { dataUrl: '', width, height }
   }
 
-  renderBase(ctx, width, height, videoEl)
+  renderBase(ctx, width, height, videoEl, filter?.canvasFilter)
+  drawColorFilter(ctx, width, height, filter)
   drawViewfinder(ctx, width, height)
-  drawLyrics(ctx, width, height, phrase)
+  drawLyrics(ctx, width, height, phrase, activeWord)
   drawHud(ctx, width, height, songTitle, frameNumber)
 
   return { dataUrl: canvas.toDataURL('image/jpeg', 0.9), width, height }
@@ -57,8 +68,13 @@ function renderBase(
   width: number,
   height: number,
   videoEl: HTMLVideoElement | null,
+  canvasFilter?: string,
 ) {
   ctx.clearRect(0, 0, width, height)
+  ctx.save()
+  if (canvasFilter && canvasFilter !== 'none') {
+    ctx.filter = canvasFilter
+  }
 
   if (videoEl && videoEl.videoWidth > 0) {
     const scale = Math.max(width / videoEl.videoWidth, height / videoEl.videoHeight)
@@ -66,7 +82,6 @@ function renderBase(
     const sh = videoEl.videoHeight * scale
     const ox = (width - sw) / 2
     const oy = (height - sh) / 2
-    ctx.save()
     ctx.translate(width, 0)
     ctx.scale(-1, 1)
     ctx.drawImage(videoEl, ox, oy, sw, sh)
@@ -82,6 +97,22 @@ function renderBase(
   ctx.fillRect(0, 0, width, height)
 
   drawCameraOffBackdrop(ctx, width, height)
+  ctx.restore()
+}
+
+function drawColorFilter(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  filter?: CaptureFilter | null,
+) {
+  if (!filter || filter.tintOpacity <= 0) return
+
+  ctx.save()
+  ctx.globalAlpha = Math.min(0.5, Math.max(0, filter.tintOpacity))
+  ctx.fillStyle = `hsl(${filter.tintHue} ${filter.tintSaturation}% ${filter.tintLightness}%)`
+  ctx.fillRect(0, 0, width, height)
+  ctx.restore()
 }
 
 function drawCameraOffBackdrop(ctx: CanvasRenderingContext2D, width: number, height: number) {
@@ -234,7 +265,72 @@ function drawCorner(
   ctx.stroke()
 }
 
-function drawLyrics(ctx: CanvasRenderingContext2D, width: number, height: number, phrase: string) {
+function splitPhraseByWord(phrase: string, word: string) {
+  if (!phrase) {
+    return { before: '', active: '', after: '' }
+  }
+
+  if (!word) {
+    return { before: '', active: phrase, after: '' }
+  }
+
+  const index = phrase.indexOf(word)
+  if (index < 0) {
+    return { before: '', active: phrase, after: '' }
+  }
+
+  return {
+    before: phrase.slice(0, index),
+    active: phrase.slice(index, index + word.length),
+    after: phrase.slice(index + word.length),
+  }
+}
+
+function drawSegmentedText(
+  ctx: CanvasRenderingContext2D,
+  segments: { before: string; active: string; after: string },
+  centerX: number,
+  centerY: number,
+  maxWidth: number,
+  fontSize: number,
+) {
+  let activeFontSize = fontSize
+  const fullText = `${segments.before}${segments.active}${segments.after}`
+
+  while (activeFontSize > 18) {
+    ctx.font = `900 ${activeFontSize}px "Noto Sans JP", sans-serif`
+    if (ctx.measureText(fullText).width <= maxWidth) break
+    activeFontSize -= 2
+  }
+
+  const beforeWidth = ctx.measureText(segments.before).width
+  const activeWidth = ctx.measureText(segments.active).width
+  const afterWidth = ctx.measureText(segments.after).width
+  let x = centerX - (beforeWidth + activeWidth + afterWidth) / 2
+
+  ctx.globalAlpha = 0.64
+  ctx.fillStyle = '#3dd6e8'
+  ctx.fillText(segments.before, x, centerY)
+  x += beforeWidth
+
+  ctx.globalAlpha = 1
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(segments.active, x, centerY)
+  x += activeWidth
+
+  ctx.globalAlpha = 0.64
+  ctx.fillStyle = '#3dd6e8'
+  ctx.fillText(segments.after, x, centerY)
+  ctx.globalAlpha = 1
+}
+
+function drawLyrics(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  phrase: string,
+  activeWord: string,
+) {
   if (!phrase) return
 
   ctx.save()
@@ -242,7 +338,7 @@ function drawLyrics(ctx: CanvasRenderingContext2D, width: number, height: number
   const maxWidth = width * 0.82
   const fontSize = Math.min(width, height) * (text.length > 20 ? 0.052 : 0.067)
   ctx.font = `900 ${fontSize}px "Noto Sans JP", sans-serif`
-  ctx.textAlign = 'center'
+  ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
 
   const boxH = Math.max(96, height * 0.09)
@@ -250,11 +346,13 @@ function drawLyrics(ctx: CanvasRenderingContext2D, width: number, height: number
   ctx.fillStyle = 'rgba(26, 26, 31, 0.66)'
   roundRect(ctx, width * 0.08, boxY, width * 0.84, boxH, 16)
   ctx.fill()
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
+  ctx.lineWidth = Math.max(1, Math.min(width, height) * 0.003)
+  ctx.stroke()
 
   ctx.shadowColor = 'rgba(0, 0, 0, 0.42)'
   ctx.shadowBlur = 14
-  ctx.fillStyle = '#ffffff'
-  ctx.fillText(text, width / 2, boxY + boxH / 2, maxWidth)
+  drawSegmentedText(ctx, splitPhraseByWord(text, activeWord.trim()), width / 2, boxY + boxH / 2, maxWidth, fontSize)
   ctx.restore()
 }
 

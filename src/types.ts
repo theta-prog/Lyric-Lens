@@ -26,6 +26,8 @@ export interface SetupConfig {
 export interface CaptureItem {
   id: string
   dataUrl: string
+  rawDataUrl?: string
+  filteredDataUrl?: string
   width: number
   height: number
   phrase: string

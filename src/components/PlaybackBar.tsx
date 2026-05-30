@@ -6,10 +6,12 @@ interface PlaybackBarProps {
   progress: number
   shotCount: number
   autoMode: boolean
+  filterEnabled: boolean
   onPlay: () => void
   onPause: () => void
   onShutter: () => void
   onToggleAutoMode: () => void
+  onToggleFilter: () => void
   onFinish: () => void
   onSeek: (ratio: number) => void
   onSeekStart: () => void
@@ -22,10 +24,12 @@ export default function PlaybackBar({
   progress,
   shotCount,
   autoMode,
+  filterEnabled,
   onPlay,
   onPause,
   onShutter,
   onToggleAutoMode,
+  onToggleFilter,
   onFinish,
   onSeek,
   onSeekStart,
@@ -85,6 +89,18 @@ export default function PlaybackBar({
           aria-label="自動シャッター"
         >
           AUTO
+        </button>
+
+        <button
+          type="button"
+          onClick={onToggleFilter}
+          className={`h-11 shrink-0 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition touch-manipulation ${
+            filterEnabled ? 'bg-yellow text-ink' : 'bg-paper text-ink-light'
+          }`}
+          aria-pressed={filterEnabled}
+          aria-label="現像フィルター"
+        >
+          FILTER
         </button>
 
         <div className="min-w-10 shrink-0 font-display text-xl font-black tabular-nums text-ink sm:min-w-16 sm:text-2xl">

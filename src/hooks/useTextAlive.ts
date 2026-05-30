@@ -118,6 +118,12 @@ export interface TextAliveState {
   error: string | null
   currentValenceArousal: { v: number; a: number } | null
   songMedianValenceArousal: { v: number; a: number } | null
+  currentChordName: string
+  isChorus: boolean
+  chorusProgress: number
+  currentVocalAmplitude: number | null
+  maxVocalAmplitude: number | null
+  vocalIntensity: number
 }
 
 type PhraseChangeCb = (newPhrase: string, prevPhrase: string) => void
@@ -191,6 +197,12 @@ export function useTextAlive(
     error: null,
     currentValenceArousal: null,
     songMedianValenceArousal: null,
+    currentChordName: '',
+    isChorus: false,
+    chorusProgress: 0,
+    currentVocalAmplitude: null,
+    maxVocalAmplitude: null,
+    vocalIntensity: 0,
   })
 
   onPhraseChangeRef.current = onPhraseChange
@@ -220,6 +232,12 @@ export function useTextAlive(
       error: null,
       currentValenceArousal: null,
       songMedianValenceArousal: null,
+      currentChordName: '',
+      isChorus: false,
+      chorusProgress: 0,
+      currentVocalAmplitude: null,
+      maxVocalAmplitude: null,
+      vocalIntensity: 0,
     }))
 
     ;(async () => {
@@ -231,6 +249,7 @@ export function useTextAlive(
           app: { token },
           mediaElement,
           valenceArousalEnabled: true,
+          vocalAmplitudeEnabled: true,
         })
         playerRef.current = player
         setDebugPlayerHandle(player, debugLyricsRef.current)
@@ -243,6 +262,7 @@ export function useTextAlive(
         }
 
         let lastMoodUpdateMs = 0
+        let maxVocalAmplitude: number | null = null
 
         const syncLyrics = (audioPosition: number) => {
           const video = (player as any).video
@@ -323,6 +343,53 @@ export function useTextAlive(
           const nowMs = performance.now()
           if (nowMs - lastMoodUpdateMs >= 300) {
             lastMoodUpdateMs = nowMs
+            let nextChordName = ''
+            let nextIsChorus = false
+            let nextChorusProgress = 0
+            let nextVocalAmplitude: number | null = null
+            let nextVocalIntensity = 0
+
+            try {
+              const chord = (player as any).findChord?.(audioPosition) as
+                | { name?: string }
+                | null
+                | undefined
+              nextChordName = chord?.name ?? ''
+            } catch {
+              nextChordName = ''
+            }
+
+            try {
+              const chorus = (player as any).findChorus?.(audioPosition) as
+                | { progress?: (time: number) => number }
+                | null
+                | undefined
+              nextIsChorus = Boolean(chorus)
+              nextChorusProgress = chorus?.progress ? Math.min(1, Math.max(0, chorus.progress(audioPosition))) : 0
+            } catch {
+              nextIsChorus = false
+              nextChorusProgress = 0
+            }
+
+            try {
+              const amp = (player as any).getVocalAmplitude?.(audioPosition) as number | null | undefined
+              if (typeof amp === 'number' && Number.isFinite(amp)) {
+                nextVocalAmplitude = amp
+                if (!maxVocalAmplitude) {
+                  const maxAmp = (player as any).getMaxVocalAmplitude?.() as number | null | undefined
+                  if (typeof maxAmp === 'number' && Number.isFinite(maxAmp) && maxAmp > 0) {
+                    maxVocalAmplitude = maxAmp
+                  }
+                }
+                nextVocalIntensity = maxVocalAmplitude
+                  ? Math.min(1, Math.max(0, amp / maxVocalAmplitude))
+                  : Math.min(1, Math.max(0, amp))
+              }
+            } catch {
+              nextVocalAmplitude = null
+              nextVocalIntensity = 0
+            }
+
             try {
               const va = (player as any).getValenceArousal?.(audioPosition) as
                 | { v: number; a: number }
@@ -332,10 +399,34 @@ export function useTextAlive(
                 setState(current => ({
                   ...current,
                   currentValenceArousal: { v: va.v, a: va.a },
+                  currentChordName: nextChordName,
+                  isChorus: nextIsChorus,
+                  chorusProgress: nextChorusProgress,
+                  currentVocalAmplitude: nextVocalAmplitude,
+                  maxVocalAmplitude,
+                  vocalIntensity: nextVocalIntensity,
+                }))
+              } else {
+                setState(current => ({
+                  ...current,
+                  currentChordName: nextChordName,
+                  isChorus: nextIsChorus,
+                  chorusProgress: nextChorusProgress,
+                  currentVocalAmplitude: nextVocalAmplitude,
+                  maxVocalAmplitude,
+                  vocalIntensity: nextVocalIntensity,
                 }))
               }
             } catch {
-              // valence/arousal data not available for this song
+              setState(current => ({
+                ...current,
+                currentChordName: nextChordName,
+                isChorus: nextIsChorus,
+                chorusProgress: nextChorusProgress,
+                currentVocalAmplitude: nextVocalAmplitude,
+                maxVocalAmplitude,
+                vocalIntensity: nextVocalIntensity,
+              }))
             }
           }
         }
@@ -412,13 +503,34 @@ export function useTextAlive(
                 songMedianVA = { v: mva.v, a: mva.a }
               }
             } catch { /* VA not yet available */ }
-            setState(current => ({ ...current, isLoaded: true, bpm, songMedianValenceArousal: songMedianVA }))
+            try {
+              const maxAmp = (player as any).getMaxVocalAmplitude?.() as number | null | undefined
+              if (typeof maxAmp === 'number' && Number.isFinite(maxAmp) && maxAmp > 0) {
+                maxVocalAmplitude = maxAmp
+              }
+            } catch { /* vocal amplitude not yet available */ }
+            setState(current => ({
+              ...current,
+              isLoaded: true,
+              bpm,
+              songMedianValenceArousal: songMedianVA,
+              maxVocalAmplitude,
+            }))
           },
           onValenceArousalLoad() {
             try {
               const mva = (player as any).getMedianValenceArousal?.() as { v: number; a: number } | null | undefined
               if (mva && typeof mva.v === 'number' && typeof mva.a === 'number') {
                 setState(current => ({ ...current, songMedianValenceArousal: { v: mva.v, a: mva.a } }))
+              }
+            } catch { /* not available */ }
+          },
+          onVocalAmplitudeLoad() {
+            try {
+              const maxAmp = (player as any).getMaxVocalAmplitude?.() as number | null | undefined
+              if (typeof maxAmp === 'number' && Number.isFinite(maxAmp) && maxAmp > 0) {
+                maxVocalAmplitude = maxAmp
+                setState(current => ({ ...current, maxVocalAmplitude }))
               }
             } catch { /* not available */ }
           },
@@ -443,6 +555,12 @@ export function useTextAlive(
               progress: 0,
               currentValenceArousal: null,
               songMedianValenceArousal: null,
+              currentChordName: '',
+              isChorus: false,
+              chorusProgress: 0,
+              currentVocalAmplitude: null,
+              maxVocalAmplitude: null,
+              vocalIntensity: 0,
             }))
             prevPhraseRef.current = ''
             prevWordRef.current = ''

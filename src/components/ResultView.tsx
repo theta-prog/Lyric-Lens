@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 import type { CaptureItem } from '../types'
 
 interface ResultViewProps {
@@ -11,23 +12,29 @@ function formatSongTime(ms: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-function downloadCapture(capture: CaptureItem, index: number) {
+function getCaptureDataUrl(capture: CaptureItem, filterEnabled: boolean) {
+  return filterEnabled
+    ? capture.filteredDataUrl ?? capture.dataUrl
+    : capture.rawDataUrl ?? capture.dataUrl
+}
+
+function downloadCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
   const link = document.createElement('a')
-  link.href = capture.dataUrl
+  link.href = getCaptureDataUrl(capture, filterEnabled)
   link.download = `shutter-chance-${String(index + 1).padStart(3, '0')}.jpg`
   link.click()
 }
 
-async function shareCapture(capture: CaptureItem, index: number) {
+async function shareCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
   const filename = `shutter-chance-${String(index + 1).padStart(3, '0')}.jpg`
 
   if (!('share' in navigator)) {
-    downloadCapture(capture, index)
+    downloadCapture(capture, index, filterEnabled)
     return
   }
 
   try {
-    const res = await fetch(capture.dataUrl)
+    const res = await fetch(getCaptureDataUrl(capture, filterEnabled))
     const blob = await res.blob()
     const file = new File([blob], filename, { type: 'image/jpeg' })
     const shareData = { files: [file], title: 'shutter chance', text: capture.phrase }
@@ -35,7 +42,7 @@ async function shareCapture(capture: CaptureItem, index: number) {
     if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
       await navigator.share(shareData)
     } else {
-      downloadCapture(capture, index)
+      downloadCapture(capture, index, filterEnabled)
     }
   } catch {
     // User cancelled — don't fall back to download
@@ -53,6 +60,8 @@ function FilmPerforation() {
 }
 
 export default function ResultView({ captures, onRestart }: ResultViewProps) {
+  const [filterEnabled, setFilterEnabled] = useState(true)
+
   return (
     <section className="grid min-h-dvh grid-rows-[auto_1fr_auto] overflow-hidden bg-paper">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-ink bg-white px-4 py-4 sm:px-6">
@@ -64,8 +73,21 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
             現像完了
           </h1>
         </div>
-        <div className="font-display text-5xl font-black text-yellow">
-          {String(captures.length).padStart(3, '0')}
+        <div className="flex items-end gap-3">
+          <button
+            type="button"
+            onClick={() => setFilterEnabled(value => !value)}
+            className={`h-11 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition touch-manipulation ${
+              filterEnabled ? 'bg-yellow text-ink' : 'bg-paper text-ink-light'
+            }`}
+            aria-pressed={filterEnabled}
+            aria-label="現像フィルター"
+          >
+            FILTER
+          </button>
+          <div className="font-display text-5xl font-black text-yellow">
+            {String(captures.length).padStart(3, '0')}
+          </div>
         </div>
       </header>
 
@@ -97,7 +119,7 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
                   className="overflow-hidden rounded-md border-2 border-ink bg-paper shadow-sketch"
                 >
                   <img
-                    src={capture.dataUrl}
+                    src={getCaptureDataUrl(capture, filterEnabled)}
                     alt={`capture ${index + 1}`}
                     className="w-full object-cover"
                     style={{ aspectRatio: `${capture.width}/${capture.height}` }}
@@ -113,14 +135,14 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
                     <div className="grid grid-cols-2 gap-1">
                       <button
                         type="button"
-                        onClick={() => void shareCapture(capture, index)}
+                        onClick={() => void shareCapture(capture, index, filterEnabled)}
                         className="h-9 rounded-md border-2 border-ink bg-cyan text-xs font-black tracking-[0.1em] text-ink transition hover:bg-cyan/80 touch-manipulation"
                       >
                         共有
                       </button>
                       <button
                         type="button"
-                        onClick={() => downloadCapture(capture, index)}
+                        onClick={() => downloadCapture(capture, index, filterEnabled)}
                         className="h-9 rounded-md border-2 border-ink bg-yellow text-xs font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation"
                       >
                         保存

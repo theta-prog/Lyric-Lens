@@ -84,11 +84,20 @@ interface PlayerViewProps {
   token: string
   songUrl: string
   songOptions?: PlayerVideoOptions
+  cameraDeviceId?: string
   onFinish: (captures: CaptureItem[]) => void
 }
 
 function normalizeText(text: string) {
   return text.trim().toLowerCase()
+}
+
+function isMobileLikeDevice() {
+  if (typeof window === 'undefined') return false
+
+  const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+  return mobileUserAgent || (coarsePointer && navigator.maxTouchPoints > 1)
 }
 
 // Order matters: longer/more-specific words first to avoid partial matches
@@ -763,7 +772,7 @@ const MusicSignalOverlay = memo(function MusicSignalOverlay({
   )
 })
 
-export default function PlayerView({ token, songUrl, songOptions, onFinish }: PlayerViewProps) {
+export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId, onFinish }: PlayerViewProps) {
   const mediaRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -793,9 +802,10 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   const [effectKey, setEffectKey] = useState(0)
   const [lyricColorHue, setLyricColorHue] = useState<number | null>(null)
   const [filterEnabled, setFilterEnabled] = useState(true)
+  const [canSwitchFacingCamera, setCanSwitchFacingCamera] = useState(false)
   const colorHueTimerRef = useRef<number | undefined>(undefined)
 
-  const camera = useCamera()
+  const camera = useCamera(cameraDeviceId)
 
   const songPersonality = useMemo(() => getSongPersonality(songUrl), [songUrl])
 
@@ -870,7 +880,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
     await wait(130)
     setCurtainPhase('idle')
     shutterBusyRef.current = false
-  }, [appendCapture, camera.enabled])
+  }, [appendCapture, camera.enabled, camera.facingMode])
 
   const cancelCountdown = useCallback(() => {
     countdownRunRef.current += 1
@@ -1056,6 +1066,10 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
   }, [autoMode, cancelCountdown, isPlaying])
 
   useEffect(() => {
+    setCanSwitchFacingCamera(!cameraDeviceId && isMobileLikeDevice())
+  }, [cameraDeviceId])
+
+  useEffect(() => {
     if (finishedRef.current || !isLoaded || progress < 0.995) return
     finish()
   }, [finish, isLoaded, progress])
@@ -1133,7 +1147,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             >
               CAMERA
             </button>
-            {camera.enabled && (
+            {camera.enabled && canSwitchFacingCamera && (
               <button
                 type="button"
                 onClick={() => { void camera.switchCamera() }}

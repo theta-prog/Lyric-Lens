@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { SetupConfig } from '../types'
 
 const HAS_TEXTALIVE_TOKEN = Boolean(import.meta.env.VITE_TEXTALIVE_TOKEN?.trim())
@@ -53,6 +53,14 @@ const BEFORE_SHOOTING_NOTES = [
   '周囲の迷惑にならないよう、個人情報や他の人の写り込みに気をつけて使ってください。',
 ] as const
 
+function isMobileLikeDevice() {
+  if (typeof window === 'undefined') return false
+
+  const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+  return mobileUserAgent || (coarsePointer && navigator.maxTouchPoints > 1)
+}
+
 interface TokenSetupProps {
   onStart: (config: SetupConfig) => void
 }
@@ -60,11 +68,64 @@ interface TokenSetupProps {
 export default function TokenSetup({ onStart }: TokenSetupProps) {
   const [songIndex, setSongIndex] = useState(0)
   const [customUrl, setCustomUrl] = useState('')
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([])
+  const [selectedCameraId, setSelectedCameraId] = useState('')
+  const [cameraStatus, setCameraStatus] = useState<'idle' | 'checking' | 'ready' | 'error'>('idle')
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [isDesktopCameraSetup, setIsDesktopCameraSetup] = useState(false)
 
   const selectedSong = PRESET_SONGS[songIndex]
   const isCustomSong = selectedSong.songUrl === ''
   const songUrl = selectedSong.songUrl || customUrl
   const canStart = HAS_TEXTALIVE_TOKEN && songUrl.trim() !== ''
+
+  useEffect(() => {
+    setIsDesktopCameraSetup(!isMobileLikeDevice())
+  }, [])
+
+  const refreshCameraDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return []
+
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    const videoInputs = devices.filter(device => device.kind === 'videoinput')
+    setCameraDevices(videoInputs)
+    setSelectedCameraId(current => {
+      if (current && videoInputs.some(device => device.deviceId === current)) return current
+      return videoInputs[0]?.deviceId ?? ''
+    })
+    return videoInputs
+  }
+
+  const handleCameraCheck = async () => {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setCameraStatus('error')
+      setCameraError('このブラウザではカメラ選択を使えません')
+      return
+    }
+
+    setCameraStatus('checking')
+    setCameraError(null)
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      })
+      stream.getTracks().forEach(track => track.stop())
+      await refreshCameraDevices()
+      setCameraStatus('ready')
+    } catch (unknownError) {
+      if (
+        unknownError instanceof DOMException &&
+        (unknownError.name === 'NotAllowedError' || unknownError.name === 'SecurityError')
+      ) {
+        setCameraError('ブラウザでカメラ利用が許可されていません')
+      } else {
+        setCameraError('カメラ一覧を取得できませんでした')
+      }
+      setCameraStatus('error')
+    }
+  }
 
   return (
     <section className="setup-screen relative grid min-h-dvh place-items-center overflow-hidden px-4 py-8 sm:px-6">
@@ -93,6 +154,7 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
             onStart({
               songUrl: songUrl.trim(),
               songOptions: selectedSong.songOptions,
+              cameraDeviceId: isDesktopCameraSetup ? selectedCameraId || undefined : undefined,
             })
           }}
         >
@@ -134,6 +196,56 @@ export default function TokenSetup({ onStart }: TokenSetupProps) {
                   placeholder="https://piapro.jp/t/..."
                 />
               </label>
+            )}
+
+            {isDesktopCameraSetup && (
+              <section
+                className="grid gap-3 rounded-md border-2 border-ink bg-paper px-3 py-3 text-sm font-bold text-ink"
+                aria-labelledby="camera-setup"
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-ink/20 pb-2">
+                  <h2 id="camera-setup" className="font-display text-sm font-black tracking-[0.1em]">
+                    カメラ
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => { void handleCameraCheck() }}
+                    disabled={cameraStatus === 'checking'}
+                    className="h-9 rounded-md border-2 border-ink bg-white px-3 text-xs font-black tracking-[0.1em] transition enabled:hover:bg-yellow disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {cameraStatus === 'checking' ? '確認中' : 'カメラ確認'}
+                  </button>
+                </div>
+
+                {cameraDevices.length > 1 ? (
+                  <label className="grid gap-2">
+                    <span className="text-xs text-ink-light">使うカメラ</span>
+                    <select
+                      value={selectedCameraId}
+                      onChange={event => setSelectedCameraId(event.target.value)}
+                      className="min-h-11 rounded-md border-2 border-ink bg-white px-3 text-sm outline-none transition focus:border-cyan focus:ring-4 focus:ring-cyan/20"
+                    >
+                      {cameraDevices.map((device, index) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `カメラ ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <p className="text-xs leading-relaxed text-ink-light">
+                    {cameraDevices.length === 1
+                      ? `使用カメラ: ${cameraDevices[0].label || 'カメラ 1'}`
+                      : 'PCで複数カメラを使う場合は、先にカメラ確認を押して選んでください。'}
+                  </p>
+                )}
+
+                {cameraError && (
+                  <p className="rounded-md border border-red-500 bg-white px-3 py-2 text-xs font-bold text-red-700">
+                    {cameraError}
+                  </p>
+                )}
+              </section>
             )}
 
             <section

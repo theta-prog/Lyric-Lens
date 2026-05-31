@@ -21,6 +21,7 @@ export type ShutterEffect =
 export interface SetupConfig {
   songUrl: string
   songOptions?: PlayerVideoOptions
+  cameraDeviceId?: string
 }
 
 export interface CaptureItem {

@@ -18,15 +18,20 @@ function getCaptureDataUrl(capture: CaptureItem, filterEnabled: boolean) {
     : capture.rawDataUrl ?? capture.dataUrl
 }
 
+function getCaptureFilename(index: number, filterEnabled: boolean) {
+  const suffix = filterEnabled ? 'filtered' : 'raw'
+  return `lyric-lens-${String(index + 1).padStart(3, '0')}-${suffix}.jpg`
+}
+
 function downloadCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
   const link = document.createElement('a')
   link.href = getCaptureDataUrl(capture, filterEnabled)
-  link.download = `lyric-lens-${String(index + 1).padStart(3, '0')}.jpg`
+  link.download = getCaptureFilename(index, filterEnabled)
   link.click()
 }
 
 async function shareCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
-  const filename = `lyric-lens-${String(index + 1).padStart(3, '0')}.jpg`
+  const filename = getCaptureFilename(index, filterEnabled)
 
   if (!('share' in navigator)) {
     downloadCapture(capture, index, filterEnabled)
@@ -60,7 +65,18 @@ function FilmPerforation() {
 }
 
 export default function ResultView({ captures, onRestart }: ResultViewProps) {
-  const [filterEnabled, setFilterEnabled] = useState(true)
+  const [filterByCaptureId, setFilterByCaptureId] = useState<Record<string, boolean>>({})
+  const isFilterEnabled = (capture: CaptureItem) => filterByCaptureId[capture.id] ?? true
+  const allFiltersEnabled = captures.every(capture => isFilterEnabled(capture))
+  const toggleCaptureFilter = (captureId: string) => {
+    setFilterByCaptureId(current => ({
+      ...current,
+      [captureId]: !(current[captureId] ?? true),
+    }))
+  }
+  const setAllFilters = (enabled: boolean) => {
+    setFilterByCaptureId(Object.fromEntries(captures.map(capture => [capture.id, enabled])))
+  }
 
   return (
     <section className="grid min-h-dvh grid-rows-[auto_1fr_auto] overflow-hidden bg-paper">
@@ -76,14 +92,14 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
         <div className="flex items-end gap-3">
           <button
             type="button"
-            onClick={() => setFilterEnabled(value => !value)}
+            onClick={() => setAllFilters(!allFiltersEnabled)}
             className={`h-11 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition touch-manipulation ${
-              filterEnabled ? 'bg-yellow text-ink' : 'bg-paper text-ink-light'
+              allFiltersEnabled ? 'bg-yellow text-ink' : 'bg-paper text-ink-light'
             }`}
-            aria-pressed={filterEnabled}
-            aria-label="現像フィルター"
+            aria-pressed={allFiltersEnabled}
+            aria-label="すべての現像フィルター"
           >
-            FILTER
+            ALL FILTER
           </button>
           <div className="font-display text-5xl font-black text-yellow">
             {String(captures.length).padStart(3, '0')}
@@ -110,47 +126,62 @@ export default function ResultView({ captures, onRestart }: ResultViewProps) {
                   : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
               }`}
             >
-              {captures.map((capture, index) => (
-                <motion.article
-                  key={capture.id}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.045, duration: 0.28 }}
-                  className="overflow-hidden rounded-md border-2 border-ink bg-paper shadow-sketch"
-                >
-                  <img
-                    src={getCaptureDataUrl(capture, filterEnabled)}
-                    alt={`capture ${index + 1}`}
-                    className="w-full object-cover"
-                    style={{ aspectRatio: `${capture.width}/${capture.height}` }}
-                  />
-                  <div className="grid gap-2 p-2">
-                    <div className="flex items-center justify-between font-display text-xs font-black text-ink sm:text-sm">
-                      <span>#{String(index + 1).padStart(3, '0')}</span>
-                      <span className="text-cyan">{formatSongTime(capture.songPosition)}</span>
-                    </div>
-                    <p className="line-clamp-2 min-h-[2rem] text-xs font-bold leading-relaxed text-ink">
-                      {capture.phrase}
-                    </p>
-                    <div className="grid grid-cols-2 gap-1">
+              {captures.map((capture, index) => {
+                const captureFilterEnabled = isFilterEnabled(capture)
+
+                return (
+                  <motion.article
+                    key={capture.id}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.045, duration: 0.28 }}
+                    className="overflow-hidden rounded-md border-2 border-ink bg-paper shadow-sketch"
+                  >
+                    <img
+                      src={getCaptureDataUrl(capture, captureFilterEnabled)}
+                      alt={`capture ${index + 1}`}
+                      className="w-full object-cover"
+                      style={{ aspectRatio: `${capture.width}/${capture.height}` }}
+                    />
+                    <div className="grid gap-2 p-2">
+                      <div className="flex items-center justify-between gap-2 font-display text-xs font-black text-ink sm:text-sm">
+                        <span>#{String(index + 1).padStart(3, '0')}</span>
+                        <span className="text-cyan">{formatSongTime(capture.songPosition)}</span>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => void shareCapture(capture, index, filterEnabled)}
-                        className="h-9 rounded-md border-2 border-ink bg-cyan text-xs font-black tracking-[0.1em] text-ink transition hover:bg-cyan/80 touch-manipulation"
+                        onClick={() => toggleCaptureFilter(capture.id)}
+                        className={`h-8 rounded-md border-2 border-ink px-2 text-[0.68rem] font-black tracking-[0.12em] transition touch-manipulation sm:text-xs ${
+                          captureFilterEnabled ? 'bg-yellow text-ink' : 'bg-white text-ink-light'
+                        }`}
+                        aria-pressed={captureFilterEnabled}
+                        aria-label={`capture ${index + 1} の現像フィルター`}
                       >
-                        共有
+                        FILTER {captureFilterEnabled ? 'ON' : 'OFF'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => downloadCapture(capture, index, filterEnabled)}
-                        className="h-9 rounded-md border-2 border-ink bg-yellow text-xs font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation"
-                      >
-                        保存
-                      </button>
+                      <p className="line-clamp-2 min-h-[2rem] text-xs font-bold leading-relaxed text-ink">
+                        {capture.phrase}
+                      </p>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void shareCapture(capture, index, captureFilterEnabled)}
+                          className="h-9 rounded-md border-2 border-ink bg-cyan text-xs font-black tracking-[0.1em] text-ink transition hover:bg-cyan/80 touch-manipulation"
+                        >
+                          共有
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadCapture(capture, index, captureFilterEnabled)}
+                          className="h-9 rounded-md border-2 border-ink bg-yellow text-xs font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation"
+                        >
+                          保存
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </motion.article>
-              ))}
+                  </motion.article>
+                )
+              })}
             </div>
           </>
         )}

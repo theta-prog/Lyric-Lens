@@ -38,6 +38,7 @@ export default function App() {
             token={TEXTALIVE_TOKEN}
             songUrl={config.songUrl}
             songOptions={config.songOptions}
+            cameraDeviceId={config.cameraDeviceId}
             onFinish={handleFinish}
           />
         )}

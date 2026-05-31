@@ -184,6 +184,35 @@ select:focus-visible {
   opacity: 0.4;
 }
 
+.camera-chip {
+  min-height: 2.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.46);
+  border-radius: 6px;
+  background: rgba(26, 26, 31, 0.58);
+  color: #ffffff;
+  padding: 0.58rem 0.76rem;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: transform 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.camera-chip:hover {
+  border-color: rgba(245, 200, 66, 0.86);
+  background: rgba(26, 26, 31, 0.72);
+}
+
+.camera-chip:active {
+  transform: translateY(1px);
+}
+
+.camera-chip[aria-pressed="true"] {
+  border-color: rgba(61, 214, 232, 0.86);
+}
+
 .sketch-lines {
   position: absolute;
   inset: 0;

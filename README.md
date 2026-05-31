@@ -26,6 +26,10 @@ VITE_TEXTALIVE_TOKEN=your_token
 npm run dev
 ```
 
+スマホ実機でカメラを確認する場合は、`http://192.168.x.x:5173` のような
+ローカルIPのHTTPではブラウザがカメラを許可しません。HTTPSで配信するか、
+HTTPSのトンネルサービス経由で開いてください。
+
 ## Scripts
 
 ```bash

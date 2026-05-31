@@ -308,9 +308,11 @@ function splitPhraseByWord(phrase: string, word: string) {
 
 const CameraBackdrop = memo(function CameraBackdrop({
   enabled,
+  facingMode,
   videoRef,
 }: {
   enabled: boolean
+  facingMode: 'user' | 'environment'
   videoRef: React.RefObject<HTMLVideoElement>
 }) {
   if (enabled) {
@@ -319,7 +321,9 @@ const CameraBackdrop = memo(function CameraBackdrop({
         ref={videoRef}
         muted
         playsInline
-        className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"
+        className={`absolute inset-0 h-full w-full object-cover ${
+          facingMode === 'user' ? 'scale-x-[-1]' : ''
+        }`}
       />
     )
   }
@@ -833,6 +837,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
       frameNumber,
       frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
       null,
+      camera.facingMode === 'user',
     )
     const filteredFrame = filterSnapshot
       ? captureFrame(
@@ -843,6 +848,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
           frameNumber,
           frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
           filterSnapshot,
+          camera.facingMode === 'user',
         )
       : rawFrame
     const selectedFrame = shouldUseFilteredFrame ? filteredFrame : rawFrame
@@ -1079,7 +1085,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             }
             transition={{ type: 'spring', stiffness: 130, damping: 14 }}
           >
-            <CameraBackdrop enabled={camera.enabled} videoRef={videoRef} />
+            <CameraBackdrop enabled={camera.enabled} facingMode={camera.facingMode} videoRef={videoRef} />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_44%,transparent_0%,transparent_57%,rgba(26,26,31,0.18)_100%)]" />
           </motion.div>
 
@@ -1121,7 +1127,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
             <button
               type="button"
               onClick={() => { void camera.toggle() }}
-              className="rounded-md border-2 border-ink bg-white/72 px-3 py-2 text-xs font-black tracking-[0.1em] backdrop-blur transition hover:bg-white"
+              className="camera-chip"
               aria-pressed={camera.enabled}
               aria-label="カメラのオンオフ"
             >
@@ -1131,7 +1137,7 @@ export default function PlayerView({ token, songUrl, songOptions, onFinish }: Pl
               <button
                 type="button"
                 onClick={() => { void camera.switchCamera() }}
-                className="rounded-md border-2 border-ink bg-white/72 px-3 py-2 text-xs font-black tracking-[0.1em] backdrop-blur transition hover:bg-white"
+                className="camera-chip"
                 aria-label={camera.facingMode === 'user' ? '外カメに切り替え' : '内カメに切り替え'}
               >
                 {camera.facingMode === 'user' ? '⇄ 外カメ' : '⇄ 内カメ'}

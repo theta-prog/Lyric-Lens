@@ -43,6 +43,7 @@ export function captureFrame(
   frameNumber: number,
   size?: CaptureSize,
   filter?: CaptureFilter | null,
+  mirrorVideo = true,
 ): CapturedFrame {
   const { width, height } = normalizeExportSize(size)
   const canvas = document.createElement('canvas')
@@ -54,7 +55,7 @@ export function captureFrame(
     return { dataUrl: '', width, height }
   }
 
-  renderBase(ctx, width, height, videoEl, filter?.canvasFilter)
+  renderBase(ctx, width, height, videoEl, filter?.canvasFilter, mirrorVideo)
   drawColorFilter(ctx, width, height, filter)
   drawViewfinder(ctx, width, height)
   drawLyrics(ctx, width, height, phrase, activeWord)
@@ -69,6 +70,7 @@ function renderBase(
   height: number,
   videoEl: HTMLVideoElement | null,
   canvasFilter?: string,
+  mirrorVideo = true,
 ) {
   ctx.clearRect(0, 0, width, height)
   ctx.save()
@@ -82,8 +84,10 @@ function renderBase(
     const sh = videoEl.videoHeight * scale
     const ox = (width - sw) / 2
     const oy = (height - sh) / 2
-    ctx.translate(width, 0)
-    ctx.scale(-1, 1)
+    if (mirrorVideo) {
+      ctx.translate(width, 0)
+      ctx.scale(-1, 1)
+    }
     ctx.drawImage(videoEl, ox, oy, sw, sh)
     ctx.restore()
     return

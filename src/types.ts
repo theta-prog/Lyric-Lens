@@ -2,6 +2,10 @@ import type { PlayerVideoOptions } from 'textalive-app-api'
 
 export type Phase = 'setup' | 'playing' | 'result'
 export type CurtainPhase = 'idle' | 'closing' | 'opening'
+export type CameraOffVisualMode = 'classic' | 'shutter-mv' | 'film-studio' | 'signal-pop'
+export type CameraOffStudioScene = 'verse' | 'build' | 'chorus'
+export type CameraOffInteractionKind = 'tap-burst' | 'press-arming' | 'press-charge' | 'drag-trail'
+export type FilmPresetId = 'mv-film' | 'sepia-400' | 'mono-800' | 'cine-gold' | 'signal-chrome'
 export type ShutterEffect =
   | 'default'
   | 'finder'
@@ -24,6 +28,16 @@ export interface SetupConfig {
   cameraDeviceId?: string
 }
 
+export interface CameraOffInteractionSnapshot {
+  kind: CameraOffInteractionKind
+  x: number
+  y: number
+  intensity: number
+  preset: CameraOffVisualMode
+  hue?: number
+  points?: { x: number; y: number }[]
+}
+
 export interface CaptureItem {
   id: string
   dataUrl: string
@@ -34,6 +48,18 @@ export interface CaptureItem {
   phrase: string
   timestamp: number
   songPosition: number
+  songTitle?: string
+  bpm?: number
+  chordName?: string
+  isChorus?: boolean
+  vocalIntensity?: number
+  tintHue?: number
+  filmPresetId?: FilmPresetId
+  filmPresetLabel?: string
+  cameraOffVisualMode?: CameraOffVisualMode
+  cameraOffInteraction?: CameraOffInteractionSnapshot
+  shutterEffect?: ShutterEffect
+  filterEnabledAtCapture?: boolean
 }
 
 export interface TextAliveControls {

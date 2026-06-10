@@ -138,6 +138,11 @@ const LYRIC_EARLY_TOLERANCE_MS = 24
 const LYRIC_LATE_TOLERANCE_MS = 48
 const LYRIC_HOLD_MS = 80
 const STARTUP_LYRIC_SYNC_WINDOW_MS = 320
+const MOOD_UPDATE_INTERVAL_MS = 500
+const VOCAL_INTENSITY_EPSILON = 0.06
+const CHORUS_PROGRESS_EPSILON = 0.045
+const VALENCE_AROUSAL_EPSILON = 0.055
+const PROGRESS_EPSILON = 0.0025
 
 function isActiveTimedUnit(unit: any, position: number) {
   if (!unit || typeof unit.startTime !== 'number' || typeof unit.endTime !== 'number') {
@@ -165,6 +170,22 @@ function findActiveTimedUnit(
 
   const nextUnit = findUnit(position + LYRIC_EARLY_TOLERANCE_MS) ?? null
   return isActiveTimedUnit(nextUnit, position) ? nextUnit : null
+}
+
+function nearlyEqual(a: number, b: number, epsilon: number) {
+  return Math.abs(a - b) < epsilon
+}
+
+function shouldUpdateValenceArousal(
+  current: { v: number; a: number } | null,
+  next: { v: number; a: number } | null,
+) {
+  if (!current || !next) return current !== next
+
+  return (
+    !nearlyEqual(current.v, next.v, VALENCE_AROUSAL_EPSILON) ||
+    !nearlyEqual(current.a, next.a, VALENCE_AROUSAL_EPSILON)
+  )
 }
 
 export function useTextAlive(
@@ -343,9 +364,10 @@ export function useTextAlive(
             onWordChangeRef.current?.(wordText, prevWord, audioPosition)
           }
 
-          // Throttled valence/arousal mood update (300 ms intervals)
+          // Throttled valence/arousal mood update. These values drive full-screen
+          // visual layers, so skip tiny changes that would only cause extra renders.
           const nowMs = performance.now()
-          if (nowMs - lastMoodUpdateMs >= 300) {
+          if (nowMs - lastMoodUpdateMs >= MOOD_UPDATE_INTERVAL_MS) {
             lastMoodUpdateMs = nowMs
             let nextChordName = ''
             let nextIsChorus = false
@@ -394,44 +416,41 @@ export function useTextAlive(
               nextVocalIntensity = 0
             }
 
+            let nextValenceArousal: { v: number; a: number } | null = null
             try {
               const va = (player as any).getValenceArousal?.(audioPosition) as
                 | { v: number; a: number }
                 | null
                 | undefined
               if (va && typeof va.v === 'number' && typeof va.a === 'number') {
-                setState(current => ({
-                  ...current,
-                  currentValenceArousal: { v: va.v, a: va.a },
-                  currentChordName: nextChordName,
-                  isChorus: nextIsChorus,
-                  chorusProgress: nextChorusProgress,
-                  currentVocalAmplitude: nextVocalAmplitude,
-                  maxVocalAmplitude,
-                  vocalIntensity: nextVocalIntensity,
-                }))
-              } else {
-                setState(current => ({
-                  ...current,
-                  currentChordName: nextChordName,
-                  isChorus: nextIsChorus,
-                  chorusProgress: nextChorusProgress,
-                  currentVocalAmplitude: nextVocalAmplitude,
-                  maxVocalAmplitude,
-                  vocalIntensity: nextVocalIntensity,
-                }))
+                nextValenceArousal = { v: va.v, a: va.a }
               }
             } catch {
-              setState(current => ({
+              nextValenceArousal = null
+            }
+
+            setState(current => {
+              const shouldUpdate =
+                (nextValenceArousal !== null && shouldUpdateValenceArousal(current.currentValenceArousal, nextValenceArousal)) ||
+                current.currentChordName !== nextChordName ||
+                current.isChorus !== nextIsChorus ||
+                !nearlyEqual(current.chorusProgress, nextChorusProgress, CHORUS_PROGRESS_EPSILON) ||
+                current.maxVocalAmplitude !== maxVocalAmplitude ||
+                !nearlyEqual(current.vocalIntensity, nextVocalIntensity, VOCAL_INTENSITY_EPSILON)
+
+              if (!shouldUpdate) return current
+
+              return {
                 ...current,
+                currentValenceArousal: nextValenceArousal ?? current.currentValenceArousal,
                 currentChordName: nextChordName,
                 isChorus: nextIsChorus,
                 chorusProgress: nextChorusProgress,
                 currentVocalAmplitude: nextVocalAmplitude,
                 maxVocalAmplitude,
                 vocalIntensity: nextVocalIntensity,
-              }))
-            }
+              }
+            })
           }
         }
 
@@ -583,12 +602,22 @@ export function useTextAlive(
             const video = (player as any).video
             const duration: number = video?.duration ?? 1
             const position: number = pos
+            const progress = Math.min(1, Math.max(0, position / duration))
 
-            setState(current => ({
-              ...current,
-              progress: Math.min(1, Math.max(0, position / duration)),
-              duration,
-            }))
+            setState(current => {
+              if (
+                current.duration === duration &&
+                nearlyEqual(current.progress, progress, PROGRESS_EPSILON)
+              ) {
+                return current
+              }
+
+              return {
+                ...current,
+                progress,
+                duration,
+              }
+            })
           },
         })
       } catch {

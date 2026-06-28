@@ -174,50 +174,6 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-async function shareCapture(capture: CaptureItem, index: number, filterEnabled: boolean) {
-  const filename = getCaptureFilename(index, filterEnabled)
-
-  if (!('share' in navigator)) {
-    downloadCapture(capture, index, filterEnabled)
-    return
-  }
-
-  try {
-    const res = await fetch(getCaptureDataUrl(capture, filterEnabled))
-    const blob = await res.blob()
-    const file = new File([blob], filename, { type: 'image/jpeg' })
-    const shareData = { files: [file], title: 'Lyric Lens', text: capture.phrase }
-
-    if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
-      await navigator.share(shareData)
-    } else {
-      downloadCapture(capture, index, filterEnabled)
-    }
-  } catch {
-    // User cancelled — don't fall back to download
-  }
-}
-
-async function shareStory(result: StoryVideoResult) {
-  const file = new File([result.blob], result.filename, { type: result.mimeType })
-  const shareData = {
-    files: [file],
-    title: 'Lyric Lens',
-    text: 'TextAlive auto edit story',
-  }
-
-  if (
-    'share' in navigator &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare(shareData)
-  ) {
-    await navigator.share(shareData)
-    return
-  }
-
-  downloadBlob(result.blob, result.filename)
-}
-
 function FilmPerforation() {
   return (
     <div className="flex h-8 shrink-0 items-center gap-2 overflow-hidden bg-ink px-2" aria-hidden="true">
@@ -1075,7 +1031,7 @@ export default function ResultView({ captures, token, songUrl, songOptions, onRe
                 )}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   onClick={() => void renderStory({ scrollToPlayback: true })}
@@ -1092,18 +1048,10 @@ export default function ResultView({ captures, token, songUrl, songOptions, onRe
                 >
                   保存
                 </button>
-                <button
-                  type="button"
-                  onClick={() => storyResult && void shareStory(storyResult)}
-                  disabled={!storyResult}
-                  className="h-12 rounded-md border-2 border-ink bg-paper px-4 text-sm font-black tracking-[0.12em] text-ink shadow-shutter transition hover:bg-white active:translate-y-1 active:shadow-none disabled:opacity-50 touch-manipulation"
-                >
-                  共有
-                </button>
               </div>
 
               <p className="rounded-md border-2 border-ink bg-white px-3 py-2 text-xs font-black leading-relaxed text-ink-light">
-                保存・共有される動画は映像のみです。曲付きの見返しは左のPLAY MUSIC LOGでブラウザ内再生できます。
+                保存される動画は映像のみです。曲付きの見返しは左のPLAY MUSIC LOGでブラウザ内再生できます。
               </p>
 
               <div className="grid gap-2">
@@ -1213,14 +1161,7 @@ export default function ResultView({ captures, token, songUrl, songOptions, onRe
                         {capture.phrase}
                       </p>
                       <CaptureLogMeta capture={capture} duration={songDuration} compact />
-                      <div className="grid grid-cols-2 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void shareCapture(capture, index, captureFilterEnabled)}
-                          className="h-9 rounded-md border-2 border-ink bg-cyan text-xs font-black tracking-[0.1em] text-ink transition hover:bg-cyan/80 touch-manipulation"
-                        >
-                          共有
-                        </button>
+                      <div className="grid gap-1">
                         <button
                           type="button"
                           onClick={() => downloadCapture(capture, index, captureFilterEnabled)}
@@ -1326,14 +1267,7 @@ export default function ResultView({ captures, token, songUrl, songOptions, onRe
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => void shareCapture(previewCapture, previewIndex, previewFilterEnabled)}
-                  className="h-11 rounded-md border-2 border-ink bg-cyan text-sm font-black tracking-[0.12em] text-ink transition hover:bg-cyan/80 touch-manipulation"
-                >
-                  共有
-                </button>
+              <div className="grid gap-2">
                 <button
                   type="button"
                   onClick={() => downloadCapture(previewCapture, previewIndex, previewFilterEnabled)}

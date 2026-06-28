@@ -3,8 +3,16 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCamera } from '../hooks/useCamera'
 import { useTextAlive } from '../hooks/useTextAlive'
-import type { CaptureItem, CurtainPhase, ShutterEffect } from '../types'
-import { captureFrame, type CaptureFilter } from '../utils/capture'
+import type {
+  CameraOffInteractionSnapshot,
+  CameraOffStudioScene,
+  CameraOffVisualMode,
+  CaptureItem,
+  CurtainPhase,
+  FilmPresetId,
+  ShutterEffect,
+} from '../types'
+import { captureElementFrameAsync, captureFrameAsync, type CaptureFilter } from '../utils/capture'
 import PlaybackBar from './PlaybackBar'
 
 interface LyricTrigger {
@@ -154,6 +162,109 @@ interface MoodVisualSettings {
   tintOpacity: number
 }
 
+export interface FilmPreset {
+  id: FilmPresetId
+  label: string
+  shortLabel: string
+  cssFilter: string
+  tintHue: number
+  tintSaturation: number
+  tintLightness: number
+  tintOpacity: number
+  grainOpacity: number
+  vignetteOpacity: number
+  leakHue: number
+  leakOpacity: number
+  swatch: string
+}
+
+const FILM_PRESETS: readonly FilmPreset[] = [
+  {
+    id: 'mv-film',
+    label: 'MV FILM',
+    shortLabel: 'MV',
+    cssFilter: 'saturate(118%) contrast(104%) brightness(101%)',
+    tintHue: 190,
+    tintSaturation: 62,
+    tintLightness: 60,
+    tintOpacity: 0.08,
+    grainOpacity: 0.06,
+    vignetteOpacity: 0.16,
+    leakHue: 48,
+    leakOpacity: 0.10,
+    swatch: 'linear-gradient(135deg, #3dd6e8 0 48%, #fffdf8 48% 54%, #f5c842 54% 100%)',
+  },
+  {
+    id: 'sepia-400',
+    label: 'SEPIA 400',
+    shortLabel: '400',
+    cssFilter: 'sepia(46%) saturate(86%) contrast(108%) brightness(96%)',
+    tintHue: 34,
+    tintSaturation: 42,
+    tintLightness: 52,
+    tintOpacity: 0.24,
+    grainOpacity: 0.12,
+    vignetteOpacity: 0.24,
+    leakHue: 24,
+    leakOpacity: 0.14,
+    swatch: 'linear-gradient(135deg, #7b5736 0 50%, #d9b06f 50% 100%)',
+  },
+  {
+    id: 'mono-800',
+    label: 'MONO 800',
+    shortLabel: '800',
+    cssFilter: 'grayscale(100%) contrast(122%) brightness(94%)',
+    tintHue: 210,
+    tintSaturation: 8,
+    tintLightness: 42,
+    tintOpacity: 0.18,
+    grainOpacity: 0.18,
+    vignetteOpacity: 0.32,
+    leakHue: 210,
+    leakOpacity: 0.04,
+    swatch: 'linear-gradient(135deg, #151515 0 50%, #d8d5cd 50% 100%)',
+  },
+  {
+    id: 'cine-gold',
+    label: 'CINE GOLD',
+    shortLabel: 'CINE',
+    cssFilter: 'saturate(112%) contrast(112%) brightness(98%) hue-rotate(-8deg)',
+    tintHue: 43,
+    tintSaturation: 70,
+    tintLightness: 56,
+    tintOpacity: 0.16,
+    grainOpacity: 0.10,
+    vignetteOpacity: 0.22,
+    leakHue: 36,
+    leakOpacity: 0.18,
+    swatch: 'linear-gradient(135deg, #1a1a1f 0 34%, #d69c28 34% 68%, #f8ead0 68% 100%)',
+  },
+  {
+    id: 'signal-chrome',
+    label: 'SIGNAL CHROME',
+    shortLabel: 'SIG',
+    cssFilter: 'saturate(150%) contrast(110%) brightness(101%) hue-rotate(12deg)',
+    tintHue: 188,
+    tintSaturation: 82,
+    tintLightness: 50,
+    tintOpacity: 0.13,
+    grainOpacity: 0.08,
+    vignetteOpacity: 0.18,
+    leakHue: 320,
+    leakOpacity: 0.12,
+    swatch: 'linear-gradient(135deg, #00b8d4 0 45%, #f5f2ed 45% 55%, #ff4f8b 55% 100%)',
+  },
+]
+
+function getFilmPreset(id: FilmPresetId) {
+  return FILM_PRESETS.find(preset => preset.id === id) ?? FILM_PRESETS[0]
+}
+
+function combineFilters(...filters: Array<string | undefined>) {
+  const activeFilters = filters.filter((filter): filter is string => Boolean(filter && filter !== 'none'))
+  return activeFilters.length ? activeFilters.join(' ') : 'none'
+}
+
 function getMoodVisualSettings({
   valenceArousal,
   songMedianValenceArousal,
@@ -251,11 +362,45 @@ const SONG_PERSONALITIES: Record<string, { hue: number; strength: number }> = {
   'QBdL': { hue: 188, strength: 0.16 }, // トリツクロジー: teal
 }
 
+const PRESET_SONG_TITLES: Record<string, string> = {
+  PNpQ: 'シャッターチャンス',
+  E2i3: 'TAKEOVER',
+  '6W2N': 'こたえて',
+  zoqO: 'アフター・ザ・カーテン',
+  B3yJ: '世界最後の音楽隊',
+  QBdL: 'トリツクロジー',
+}
+
+const APERTURE_BLADE_INDICES = Array.from({ length: 7 }, (_, index) => index)
+const MV_TIMELINE_INDICES = Array.from({ length: 12 }, (_, index) => index)
+const LIGHT_MV_TIMELINE_INDICES = Array.from({ length: 6 }, (_, index) => index)
+const VOCAL_METER_INDICES = Array.from({ length: 5 }, (_, index) => index)
+
+type CameraOffRenderQuality = 'full' | 'light'
+
+interface CameraOffInteractionView extends CameraOffInteractionSnapshot {
+  id: number
+}
+
+interface CameraOffInteractionSegment {
+  x: number
+  y: number
+  angle: number
+  length: number
+}
+
 function getSongPersonality(url: string) {
   for (const [id, p] of Object.entries(SONG_PERSONALITIES)) {
     if (url.includes(id)) return p
   }
   return null
+}
+
+function getPresetSongTitle(url: string) {
+  for (const [id, title] of Object.entries(PRESET_SONG_TITLES)) {
+    if (url.includes(id)) return title
+  }
+  return ''
 }
 
 function findShutterTrigger(text: string) {
@@ -289,6 +434,112 @@ function getBeatDurationMs(bpm: number, multiplier = 1) {
   return bpm > 0 ? 60000 / (bpm * multiplier) : 1000 / multiplier
 }
 
+function getCameraOffStudioScene({
+  isChorus,
+  chorusProgress,
+  vocalIntensity,
+  word,
+}: {
+  isChorus: boolean
+  chorusProgress: number
+  vocalIntensity: number
+  word: string
+}): CameraOffStudioScene {
+  if (isChorus) return 'chorus'
+
+  const normalizedWord = normalizeText(word)
+  const hasShutterWord = ['シャッター', 'しゃったー', 'チャンス', '瞬間', '切り取り', '切り取'].some(keyword =>
+    normalizedWord.includes(normalizeText(keyword)),
+  )
+
+  if (hasShutterWord || chorusProgress > 0.72 || vocalIntensity > 0.58) return 'build'
+
+  return 'verse'
+}
+
+function getWeightedTextLength(text: string) {
+  return Array.from(text).reduce((length, char) => length + (char.charCodeAt(0) > 255 ? 1 : 0.56), 0)
+}
+
+function getMvTypeSize(text: string, layer: 'front' | 'back') {
+  const weightedLength = Math.max(1, getWeightedTextLength(text))
+  const baseVw = layer === 'front' ? 10.2 : 13
+  const baseMax = layer === 'front' ? 7.4 : 9
+  const targetLength = layer === 'front' ? 7 : 11
+  const scale = Math.min(1, Math.max(0.42, targetLength / weightedLength))
+
+  return `clamp(${layer === 'front' ? 1.35 : 1.8}rem, ${(baseVw * scale).toFixed(2)}vw, ${(baseMax * scale).toFixed(2)}rem)`
+}
+
+function isShutterChanceSong(songUrl: string, songTitle: string) {
+  return songUrl.includes('PNpQ') || songTitle.includes('シャッターチャンス')
+}
+
+function getCameraOffRenderQuality(): CameraOffRenderQuality {
+  if (typeof window === 'undefined') return 'full'
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+  const smallViewport = Math.min(window.innerWidth, window.innerHeight) <= 720
+  const lowCoreDevice = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+  const lowMemoryDevice = typeof deviceMemory === 'number' && deviceMemory <= 4
+
+  return reducedMotion || smallViewport || coarsePointer || lowCoreDevice || lowMemoryDevice
+    ? 'light'
+    : 'full'
+}
+
+function getCameraOffStudioPalette({
+  songUrl,
+  songTitle,
+  lyricColorHue,
+  currentChordName,
+  songPersonality,
+  bpm,
+  vocalIntensity,
+}: {
+  songUrl: string
+  songTitle: string
+  lyricColorHue: number | null
+  currentChordName: string
+  songPersonality: { hue: number; strength: number } | null
+  bpm: number
+  vocalIntensity: number
+}) {
+  if (isShutterChanceSong(songUrl, songTitle)) {
+    return {
+      leftHue: 190,
+      rightHue: 48,
+      accentHue: 190,
+      textPrimaryHue: 48,
+      textSecondaryHue: 190,
+      saturation: 78,
+      leftLightness: 81,
+      rightLightness: 66,
+    }
+  }
+
+  const baseHue = lyricColorHue ?? getChordHue(currentChordName) ?? songPersonality?.hue ?? 205
+  const bpmDrive = bpm > 0 ? Math.min(1, Math.max(0, (bpm - 82) / 78)) : (songPersonality?.strength ?? 0.18) * 2
+  const energy = Math.min(1, Math.max(bpmDrive, vocalIntensity))
+  const hueSpread = 22 + energy * 54
+  const saturation = Math.round(46 + energy * 38)
+  const leftLightness = Math.round(82 - energy * 12)
+  const rightLightness = Math.round(74 - energy * 8)
+
+  return {
+    leftHue: Math.round((baseHue + 360 - hueSpread * 0.32) % 360),
+    rightHue: Math.round((baseHue + hueSpread) % 360),
+    accentHue: Math.round((baseHue + (energy > 0.62 ? 118 : 36)) % 360),
+    textPrimaryHue: Math.round((baseHue + (energy > 0.62 ? 118 : 24)) % 360),
+    textSecondaryHue: Math.round(baseHue),
+    saturation,
+    leftLightness,
+    rightLightness,
+  }
+}
+
 function formatSpeed(bpm: number) {
   const speed = bpm > 0 ? Math.max(60, Math.round(bpm * 2)) : 125
   return `1/${speed}`
@@ -315,14 +566,78 @@ function splitPhraseByWord(phrase: string, word: string) {
   }
 }
 
+function getInteractionSegments(points?: { x: number; y: number }[]): CameraOffInteractionSegment[] {
+  if (!points || points.length < 2) return []
+
+  return points.slice(1).map((point, index) => {
+    const previous = points[index]
+    const dx = point.x - previous.x
+    const dy = point.y - previous.y
+
+    return {
+      x: (previous.x + point.x) / 2,
+      y: (previous.y + point.y) / 2,
+      angle: Math.atan2(dy, dx) * 180 / Math.PI,
+      length: Math.hypot(dx, dy),
+    }
+  })
+}
+
+function getDragPoints(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const steps = 9
+
+  return Array.from({ length: steps }, (_, index) => {
+    const t = index / (steps - 1)
+    const wave = Math.sin(t * Math.PI) * 0.012
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const distance = Math.hypot(dx, dy) || 1
+
+    return {
+      x: start.x + dx * t - (dy / distance) * wave,
+      y: start.y + dy * t + (dx / distance) * wave,
+    }
+  })
+}
+
 const CameraBackdrop = memo(function CameraBackdrop({
   enabled,
   facingMode,
   videoRef,
+  bpm,
+  songTitle,
+  phrase,
+  word,
+  visualMode,
+  currentChordName,
+  isChorus,
+  chorusProgress,
+  vocalIntensity,
+  lyricColorHue,
+  studioScene,
+  songUrl,
+  songPersonality,
+  interaction,
+  renderQuality,
 }: {
   enabled: boolean
   facingMode: 'user' | 'environment'
   videoRef: React.RefObject<HTMLVideoElement>
+  bpm: number
+  songTitle: string
+  phrase: string
+  word: string
+  visualMode: CameraOffVisualMode
+  currentChordName: string
+  isChorus: boolean
+  chorusProgress: number
+  vocalIntensity: number
+  lyricColorHue: number | null
+  studioScene: CameraOffStudioScene
+  songUrl: string
+  songPersonality: { hue: number; strength: number } | null
+  interaction: CameraOffInteractionView | null
+  renderQuality: CameraOffRenderQuality
 }) {
   if (enabled) {
     return (
@@ -337,12 +652,144 @@ const CameraBackdrop = memo(function CameraBackdrop({
     )
   }
 
+  if (visualMode === 'classic') {
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-[linear-gradient(135deg,#edfdf2_0%,#b8efff_48%,#fff0a0_100%)]">
+        <div className="absolute left-[12%] top-[32%] h-[14%] max-h-18 min-h-12 w-[21%] max-w-18 rotate-[-10deg] border-[6px] border-cyan/55 bg-cyan/10 opacity-70 shadow-sketch sm:left-[10%] sm:top-[25%] sm:h-[18%] sm:max-h-24 sm:w-[24%] sm:max-w-24 sm:border-[8px]" />
+        <div className="absolute right-[5%] top-[31%] h-[11%] max-h-14 min-h-11 w-[36%] max-w-30 rotate-[8deg] border-[6px] border-yellow/65 bg-yellow/14 opacity-75 shadow-sketch sm:top-[26%] sm:h-[13%] sm:max-h-18 sm:max-w-36 sm:border-[7px]" />
+        <div className="absolute bottom-[13%] left-[8%] h-[21%] max-h-24 min-h-18 w-[47%] max-w-40 rotate-[3deg] border-[6px] border-ink/10 bg-white/14 opacity-65 shadow-sketch sm:bottom-[12%] sm:h-[23%] sm:max-h-28 sm:max-w-44 sm:border-[7px]" />
+        <div className="absolute bottom-[15%] right-[10%] h-[15%] max-h-18 min-h-12 w-[20%] max-w-18 rotate-[-8deg] rounded-full border-[8px] border-cyan/35 bg-yellow/28 opacity-75 sm:bottom-[14%] sm:h-[16%] sm:max-h-20 sm:max-w-20 sm:border-[9px]" />
+        <div className="sketch-lines" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  const chordHue = lyricColorHue ?? getChordHue(currentChordName) ?? 190
+  const interactionSegments = interaction?.kind === 'drag-trail'
+    ? getInteractionSegments(interaction.points)
+    : []
+  const isLightRender = renderQuality === 'light'
+  const timelineIndices = isLightRender ? LIGHT_MV_TIMELINE_INDICES : MV_TIMELINE_INDICES
+  const shouldDrawInteractionTrail = interaction?.kind === 'drag-trail' && !isLightRender
+  const beatMs = Math.round(getBeatDurationMs(bpm))
+  const phraseText = phrase || songTitle || 'Lyric Lens'
+  const activeText = word || phraseText
+  const energyBoost = visualMode === 'signal-pop' ? 0.22 : visualMode === 'film-studio' ? -0.04 : 0
+  const energy = Math.max(0.12, Math.min(1, vocalIntensity + energyBoost))
+  const apertureRotation = studioScene === 'chorus' ? 18 : studioScene === 'build' ? 9 : 0
+  const palette = getCameraOffStudioPalette({
+    songUrl,
+    songTitle,
+    lyricColorHue,
+    currentChordName,
+    songPersonality,
+    bpm,
+    vocalIntensity,
+  })
+
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[linear-gradient(135deg,#edfdf2_0%,#b8efff_48%,#fff0a0_100%)]">
-      <div className="absolute left-[12%] top-[32%] h-[14%] max-h-18 min-h-12 w-[21%] max-w-18 rotate-[-10deg] border-[6px] border-cyan/55 bg-cyan/10 opacity-70 shadow-sketch sm:left-[10%] sm:top-[25%] sm:h-[18%] sm:max-h-24 sm:w-[24%] sm:max-w-24 sm:border-[8px]" />
-      <div className="absolute right-[5%] top-[31%] h-[11%] max-h-14 min-h-11 w-[36%] max-w-30 rotate-[8deg] border-[6px] border-yellow/65 bg-yellow/14 opacity-75 shadow-sketch sm:top-[26%] sm:h-[13%] sm:max-h-18 sm:max-w-36 sm:border-[7px]" />
-      <div className="absolute bottom-[13%] left-[8%] h-[21%] max-h-24 min-h-18 w-[47%] max-w-40 rotate-[3deg] border-[6px] border-ink/10 bg-white/14 opacity-65 shadow-sketch sm:bottom-[12%] sm:h-[23%] sm:max-h-28 sm:max-w-44 sm:border-[7px]" />
-      <div className="absolute bottom-[15%] right-[10%] h-[15%] max-h-18 min-h-12 w-[20%] max-w-18 rotate-[-8deg] rounded-full border-[8px] border-cyan/35 bg-yellow/28 opacity-75 sm:bottom-[14%] sm:h-[16%] sm:max-h-20 sm:max-w-20 sm:border-[9px]" />
+    <div
+      className={`camera-off-studio camera-off-studio-${visualMode} camera-off-studio-${studioScene} camera-off-studio-${renderQuality} absolute inset-0 overflow-hidden`}
+      style={{
+        ['--mv-hue' as string]: chordHue,
+        ['--mv-energy' as string]: energy,
+        ['--beat-ms' as string]: `${beatMs}ms`,
+        ['--chorus-progress' as string]: chorusProgress,
+        ['--aperture-rotation' as string]: `${apertureRotation}deg`,
+        ['--mv-left-hue' as string]: palette.leftHue,
+        ['--mv-right-hue' as string]: palette.rightHue,
+        ['--mv-accent-hue' as string]: palette.accentHue,
+        ['--mv-text-primary-hue' as string]: palette.textPrimaryHue,
+        ['--mv-text-secondary-hue' as string]: palette.textSecondaryHue,
+        ['--mv-saturation' as string]: `${palette.saturation}%`,
+        ['--mv-left-lightness' as string]: `${palette.leftLightness}%`,
+        ['--mv-right-lightness' as string]: `${palette.rightLightness}%`,
+        ['--mv-front-size' as string]: getMvTypeSize(activeText, 'front'),
+        ['--mv-back-size' as string]: getMvTypeSize(phraseText, 'back'),
+      }}
+    >
+      {!isLightRender && (
+        <>
+          <div className="mv-contact-sheet" aria-hidden="true" />
+          <div className="mv-card-stack" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="mv-doodle mv-doodle-left" aria-hidden="true">↝</div>
+          <div className="mv-doodle mv-doodle-right" aria-hidden="true">↜</div>
+        </>
+      )}
+      <div className="mv-stage-frame" />
+      <div className="mv-aperture" aria-hidden="true">
+        {!isLightRender && APERTURE_BLADE_INDICES.map(index => (
+          <span key={index} style={{ transform: `rotate(${index * 51.43}deg)` }} />
+        ))}
+      </div>
+      <div className="mv-shutter-gate" aria-hidden="true" />
+      <div className="mv-film-strip mv-film-strip-left" aria-hidden="true" />
+      <div className="mv-film-strip mv-film-strip-right" aria-hidden="true" />
+      <div className="mv-light-sweep" aria-hidden="true" />
+      <div className="mv-typography mv-typography-back" aria-hidden="true">{phraseText}</div>
+      <div className="mv-typography mv-typography-front" aria-hidden="true">{activeText}</div>
+      <div className="mv-timeline" aria-hidden="true">
+        {timelineIndices.map(index => (
+          <span
+            key={index}
+            style={{
+              height: `${22 + ((index * 17) % 48) + energy * 28}%`,
+              animationDelay: `${index * 42}ms`,
+            }}
+          />
+        ))}
+      </div>
+      {isChorus && (
+        <>
+          <div className="mv-chorus-matte" aria-hidden="true" />
+          <div className="mv-chorus-label" aria-hidden="true">SHUTTER CHANCE</div>
+        </>
+      )}
+      {interaction && (
+        <div
+          key={interaction.id}
+          className={`mv-touch mv-touch-${visualMode} mv-touch-${interaction.kind}`}
+          style={{
+            ['--touch-x' as string]: `${interaction.x * 100}%`,
+            ['--touch-y' as string]: `${interaction.y * 100}%`,
+            ['--touch-hue' as string]: interaction.hue ?? chordHue,
+            ['--touch-intensity' as string]: interaction.intensity,
+          }}
+          aria-hidden="true"
+        >
+          {(interaction.kind === 'tap-burst' || interaction.kind === 'press-arming' || interaction.kind === 'press-charge' || interaction.kind === 'drag-trail') && (
+            <span className="mv-touch-exposure" />
+          )}
+          {shouldDrawInteractionTrail && interactionSegments.map((segment, index) => (
+            <span
+              key={`${interaction.id}-segment-${index}`}
+              className="mv-touch-segment"
+              style={{
+                ['--touch-segment-x' as string]: `${segment.x * 100}%`,
+                ['--touch-segment-y' as string]: `${segment.y * 100}%`,
+                ['--touch-segment-angle' as string]: `${segment.angle}deg`,
+                ['--touch-segment-length' as string]: segment.length,
+                ['--touch-segment-index' as string]: index,
+              }}
+            />
+          ))}
+          {shouldDrawInteractionTrail && interaction.points?.map((point, index) => (
+            <span
+              key={`${interaction.id}-${index}`}
+              className="mv-touch-point"
+              style={{
+                ['--touch-point-x' as string]: `${point.x * 100}%`,
+                ['--touch-point-y' as string]: `${point.y * 100}%`,
+                ['--touch-point-index' as string]: index,
+              }}
+            />
+          ))}
+        </div>
+      )}
       <div className="sketch-lines" aria-hidden="true" />
     </div>
   )
@@ -356,6 +803,7 @@ const ViewfinderOverlay = memo(function ViewfinderOverlay({
   currentChordName,
   isChorus,
   vocalIntensity,
+  filmLabel,
 }: {
   afPulse: number
   bpm: number
@@ -364,23 +812,32 @@ const ViewfinderOverlay = memo(function ViewfinderOverlay({
   currentChordName: string
   isChorus: boolean
   vocalIntensity: number
+  filmLabel: string | null
 }) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-20">
-      <div className="absolute inset-x-5 top-4 flex items-center justify-between gap-3 font-display text-base font-black text-ink/70 sm:inset-x-7 sm:text-xl">
+    <div className="pointer-events-none absolute inset-0 z-20" data-capture-exclude="true">
+      <div className="absolute inset-x-3 top-3 flex min-w-0 items-center justify-between gap-2 font-display text-[0.8rem] font-black text-white/86 [text-shadow:0_2px_10px_rgba(0,0,0,0.52)] sm:inset-x-7 sm:top-4 sm:text-xl">
         <span>SS {formatSpeed(bpm)}</span>
-        <span>f/1.8&nbsp;&nbsp;ISO AUTO</span>
+        <span className="min-w-0 truncate">f/1.8&nbsp;&nbsp;ISO AUTO</span>
       </div>
 
-      <div className="absolute inset-x-5 bottom-4 flex items-center justify-between gap-3 font-display text-base font-black text-ink/70 sm:inset-x-7 sm:text-lg">
+      <div className="absolute inset-x-3 bottom-3 flex min-w-0 items-center justify-between gap-2 font-display text-[0.8rem] font-black text-white/86 [text-shadow:0_2px_10px_rgba(0,0,0,0.52)] sm:inset-x-7 sm:bottom-4 sm:text-lg">
         <span className="max-w-[52%] truncate">{songTitle || 'Lyric Lens'}</span>
         <span className="text-yellow">● {String(shotCount).padStart(4, '0')}</span>
       </div>
 
-      <div className="absolute right-5 top-14 grid min-w-24 gap-1 border border-ink/25 bg-white/58 px-2 py-1 font-display text-[0.72rem] font-black leading-tight text-ink/70 sm:right-7 sm:top-16 sm:text-sm">
+      <div className="viewfinder-stats absolute right-5 top-20 grid min-w-28 gap-1 border border-ink/25 bg-white/62 px-2.5 py-2 text-right font-display text-[0.7rem] font-black leading-tight text-ink/72 sm:right-7 sm:top-24 sm:text-xs">
         <span>{isChorus ? 'CHORUS' : 'VERSE'}</span>
         <span>{currentChordName || '--'}</span>
         <span>VOX {String(Math.round(vocalIntensity * 99)).padStart(2, '0')}</span>
+        {filmLabel && (
+          <>
+            <span className="mt-1 border-t border-ink/20 pt-1 text-[0.58rem] tracking-[0.14em] text-ink-light">
+              FILM
+            </span>
+            <span className="max-w-32 truncate tracking-[0.1em] text-ink">{filmLabel}</span>
+          </>
+        )}
       </div>
 
       <motion.div
@@ -414,7 +871,7 @@ const LyricDisplay = memo(function LyricDisplay({ phrase, word }: { phrase: stri
   const segments = splitPhraseByWord(phrase, word)
 
   return (
-    <div className="pointer-events-none absolute inset-x-5 bottom-[22%] z-30 flex justify-center sm:bottom-[24%]">
+    <div className="pointer-events-none absolute inset-x-5 bottom-[22%] z-30 flex justify-center sm:bottom-[24%]" data-capture-exclude="true">
       <motion.div
         initial={false}
         animate={{ opacity: 1, y: 0 }}
@@ -432,7 +889,7 @@ const LyricDisplay = memo(function LyricDisplay({ phrase, word }: { phrase: stri
 
 const ShutterCurtain = memo(function ShutterCurtain({ phase, flashKey }: { phase: CurtainPhase; flashKey: number }) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-50 overflow-hidden">
+    <div className="pointer-events-none absolute inset-0 z-50 overflow-hidden" data-capture-exclude="true">
       <div className={`curtain curtain-top ${phase}`} />
       <div className={`curtain curtain-bottom ${phase}`} />
       <div key={flashKey} className="absolute inset-0 animate-flashFade bg-white" />
@@ -449,6 +906,7 @@ const CountdownOverlay = memo(function CountdownOverlay({ value }: { value: numb
           role="status"
           aria-live="polite"
           className="pointer-events-none absolute inset-0 z-[45] grid place-items-center"
+          data-capture-exclude="true"
           initial={{ opacity: 0, scale: 0.72 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 1.18 }}
@@ -665,56 +1123,68 @@ const EffectOverlay = memo(function EffectOverlay({
 })
 
 const MoodColorOverlay = memo(function MoodColorOverlay({
-  valenceArousal,
-  songMedianValenceArousal,
-  songPersonality,
-  bpm,
-  lyricColorHue,
-  currentChordName,
-  isChorus,
-  vocalIntensity,
+  tintHue,
+  tintSaturation,
+  tintLightness,
+  tintOpacity,
 }: {
-  valenceArousal: { v: number; a: number } | null
-  songMedianValenceArousal: { v: number; a: number } | null
-  songPersonality: { hue: number; strength: number } | null
-  bpm: number
-  lyricColorHue: number | null
-  currentChordName: string
-  isChorus: boolean
-  vocalIntensity: number
+  tintHue: number
+  tintSaturation: number
+  tintLightness: number
+  tintOpacity: number
 }) {
-  const visualSettings = getMoodVisualSettings({
-    valenceArousal,
-    songMedianValenceArousal,
-    songPersonality,
-    bpm,
-    lyricColorHue,
-    currentChordName,
-    isChorus,
-    vocalIntensity,
-  })
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-10"
+      style={{
+        backgroundColor: `hsl(${tintHue}deg ${tintSaturation}% ${tintLightness}%)`,
+        opacity: tintOpacity,
+        transition: 'background-color 0.4s ease-in-out, opacity 0.4s ease-in-out',
+      }}
+      aria-hidden
+    />
+  )
+})
+
+const FilmLookOverlay = memo(function FilmLookOverlay({
+  film,
+  renderQuality,
+}: {
+  film: FilmPreset
+  renderQuality: CameraOffRenderQuality
+}) {
+  const isLightRender = renderQuality === 'light'
 
   return (
-    <>
+    <div className="pointer-events-none absolute inset-0 z-[11] overflow-hidden" aria-hidden="true">
       <div
-        className="pointer-events-none absolute inset-0 z-10"
+        className="absolute inset-0 transition-opacity"
         style={{
-          backdropFilter: visualSettings.canvasFilter,
-          WebkitBackdropFilter: visualSettings.canvasFilter,
-          transition: 'backdrop-filter 0.8s ease-in-out, -webkit-backdrop-filter 0.8s ease-in-out',
+          backgroundColor: `hsl(${film.tintHue}deg ${film.tintSaturation}% ${film.tintLightness}%)`,
+          mixBlendMode: film.id === 'mono-800' ? 'saturation' : 'multiply',
+          opacity: film.tintOpacity,
         }}
-        aria-hidden
       />
+      {!isLightRender && (
+        <>
+          <div
+            className="film-leak"
+            style={{
+              ['--film-leak-hue' as string]: film.leakHue,
+              ['--film-leak-opacity' as string]: film.leakOpacity,
+            }}
+          />
+          <div
+            className="film-grain"
+            style={{ ['--film-grain-opacity' as string]: film.grainOpacity }}
+          />
+        </>
+      )}
       <div
-        className="pointer-events-none absolute inset-0 z-10"
-        style={{
-          backgroundColor: `hsl(${visualSettings.tintHue}deg ${visualSettings.tintSaturation}% ${visualSettings.tintLightness}%)`,
-          opacity: visualSettings.tintOpacity,
-          transition: 'background-color 0.4s ease-in-out, opacity 0.4s ease-in-out',
-        }}
-        aria-hidden
+        className="film-vignette"
+        style={{ ['--film-vignette-opacity' as string]: film.vignetteOpacity }}
       />
-    </>
+    </div>
   )
 })
 
@@ -733,7 +1203,7 @@ const MusicSignalOverlay = memo(function MusicSignalOverlay({
   const meter = Math.max(0.06, vocalIntensity)
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-[19]" aria-hidden="true">
+    <div className="pointer-events-none absolute inset-0 z-[19]" aria-hidden="true" data-capture-exclude="true">
       {isChorus && (
         <>
           <div className="absolute inset-[4%] border-[6px] border-yellow/28" />
@@ -752,7 +1222,7 @@ const MusicSignalOverlay = memo(function MusicSignalOverlay({
       )}
 
       <div className="absolute bottom-[16%] right-[7%] flex h-20 items-end gap-1">
-        {Array.from({ length: 5 }).map((_, index) => {
+        {VOCAL_METER_INDICES.map(index => {
           const threshold = (index + 1) / 5
           const opacity = meter >= threshold ? 0.82 : 0.22
           return (
@@ -772,6 +1242,51 @@ const MusicSignalOverlay = memo(function MusicSignalOverlay({
   )
 })
 
+const CameraLiveInteractionOverlay = memo(function CameraLiveInteractionOverlay({
+  interaction,
+  currentChordName,
+  isChorus,
+}: {
+  interaction: CameraOffInteractionView | null
+  currentChordName: string
+  isChorus: boolean
+}) {
+  if (!interaction) return null
+
+  const hue = interaction.hue ?? getChordHue(currentChordName) ?? 190
+  const points = interaction.kind === 'drag-trail' ? interaction.points?.slice(0, 7) ?? [] : []
+
+  return (
+    <div
+      key={interaction.id}
+      className={`camera-live-touch camera-live-touch-${interaction.kind} ${isChorus ? 'camera-live-touch-chorus' : ''}`}
+      data-capture-exclude="true"
+      style={{
+        ['--touch-x' as string]: `${interaction.x * 100}%`,
+        ['--touch-y' as string]: `${interaction.y * 100}%`,
+        ['--touch-hue' as string]: hue,
+        ['--touch-intensity' as string]: interaction.intensity,
+      }}
+      aria-hidden="true"
+    >
+      <span className="camera-live-reticle" />
+      <span className="camera-live-exposure" />
+      <span className="camera-live-scan" />
+      {points.map((point, index) => (
+        <span
+          key={`${interaction.id}-live-${index}`}
+          className="camera-live-drag-point"
+          style={{
+            ['--touch-point-x' as string]: `${point.x * 100}%`,
+            ['--touch-point-y' as string]: `${point.y * 100}%`,
+            ['--touch-point-index' as string]: index,
+          }}
+        />
+      ))}
+    </div>
+  )
+})
+
 export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId, onFinish }: PlayerViewProps) {
   const mediaRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -780,12 +1295,29 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
   const phraseRef = useRef('')
   const wordRef = useRef('')
   const songPositionRef = useRef(0)
+  const songDurationRef = useRef(0)
   const songTitleRef = useRef('')
   const bpmRef = useRef(0)
+  const chordNameRef = useRef('')
+  const isChorusRef = useRef(false)
+  const vocalIntensityRef = useRef(0)
   const isPlayingRef = useRef(false)
   const autoModeRef = useRef(true)
   const filterEnabledRef = useRef(true)
   const captureFilterRef = useRef<CaptureFilter | null>(null)
+  const activeEffectRef = useRef<ShutterEffect | null>(null)
+  const lastInteractionRef = useRef<CameraOffInteractionSnapshot | null>(null)
+  const interactionStartRef = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    lastX: number
+    lastY: number
+    lastPublishedAt: number
+    startedAt: number
+    longPressTimer?: number
+    dragging: boolean
+  } | null>(null)
   const lastAutoRef = useRef({ text: '', time: 0 })
   const shutterBusyRef = useRef(false)
   const countdownBusyRef = useRef(false)
@@ -802,12 +1334,21 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
   const [effectKey, setEffectKey] = useState(0)
   const [lyricColorHue, setLyricColorHue] = useState<number | null>(null)
   const [filterEnabled, setFilterEnabled] = useState(true)
+  const [captureError, setCaptureError] = useState<string | null>(null)
+  const [selectedFilmPresetId, setSelectedFilmPresetId] = useState<FilmPresetId>('mv-film')
+  const [cameraOffVisualMode] = useState<CameraOffVisualMode>('shutter-mv')
+  const [cameraOffRenderQuality, setCameraOffRenderQuality] = useState<CameraOffRenderQuality>(() =>
+    getCameraOffRenderQuality(),
+  )
+  const [cameraOffInteraction, setCameraOffInteraction] = useState<CameraOffInteractionView | null>(null)
   const [canSwitchFacingCamera, setCanSwitchFacingCamera] = useState(false)
   const colorHueTimerRef = useRef<number | undefined>(undefined)
+  const interactionClearTimerRef = useRef<number | undefined>(undefined)
 
   const camera = useCamera(cameraDeviceId)
 
   const songPersonality = useMemo(() => getSongPersonality(songUrl), [songUrl])
+  const fallbackSongTitle = useMemo(() => getPresetSongTitle(songUrl), [songUrl])
 
   const onPhraseChange = useCallback((nextPhrase: string) => {
     if (nextPhrase) {
@@ -822,65 +1363,163 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
     return nextCaptures
   }, [])
 
-  const handleShutter = useCallback(async () => {
+  const publishCameraOffInteraction = useCallback(
+    (
+      snapshot: Omit<CameraOffInteractionSnapshot, 'preset' | 'hue'> & {
+        hue?: number
+        points?: { x: number; y: number }[]
+      },
+    ) => {
+      const nextSnapshot: CameraOffInteractionSnapshot = {
+        kind: snapshot.kind,
+        x: snapshot.x,
+        y: snapshot.y,
+        intensity: snapshot.intensity,
+        preset: cameraOffVisualMode,
+        hue: snapshot.hue ?? captureFilterRef.current?.tintHue ?? getChordHue(chordNameRef.current) ?? 190,
+        points: snapshot.points,
+      }
+
+      lastInteractionRef.current = nextSnapshot
+      window.clearTimeout(interactionClearTimerRef.current)
+      setCameraOffInteraction({
+        ...nextSnapshot,
+        id: Date.now(),
+      })
+      interactionClearTimerRef.current = window.setTimeout(() => {
+        setCameraOffInteraction(null)
+      }, snapshot.kind === 'press-charge' ? 1900 : snapshot.kind === 'press-arming' ? 720 : snapshot.kind === 'drag-trail' ? 1350 : 1100)
+    },
+    [cameraOffVisualMode],
+  )
+
+  const handleShutter = useCallback(async (
+    shutterEffect: ShutterEffect = activeEffectRef.current ?? 'default',
+    captureSource: 'manual' | 'auto' = 'manual',
+    triggerText = '',
+  ) => {
     if (shutterBusyRef.current) return
 
     shutterBusyRef.current = true
-    const phraseSnapshot = phraseRef.current || wordRef.current || 'Lyric Lens'
-    const wordSnapshot = wordRef.current
-    const songPositionSnapshot = songPositionRef.current
-    const filterSnapshot = captureFilterRef.current
-    const shouldUseFilteredFrame = filterEnabledRef.current && filterSnapshot
-    navigator.vibrate?.(30)
-    setAfPulse(value => value + 1)
-    await wait(50)
-    setCurtainPhase('closing')
-    await wait(90)
+    setCaptureError(null)
 
-    const frameNumber = capturesRef.current.length + 1
-    const frameRect = frameRef.current?.getBoundingClientRect()
-    const rawFrame = captureFrame(
-      camera.enabled && videoRef.current ? videoRef.current : null,
-      phraseSnapshot,
-      wordSnapshot,
-      songTitleRef.current,
-      frameNumber,
-      frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
-      null,
-      camera.facingMode === 'user',
-    )
-    const filteredFrame = filterSnapshot
-      ? captureFrame(
-          camera.enabled && videoRef.current ? videoRef.current : null,
-          phraseSnapshot,
-          wordSnapshot,
-          songTitleRef.current,
-          frameNumber,
-          frameRect ? { width: frameRect.width, height: frameRect.height } : undefined,
-          filterSnapshot,
-          camera.facingMode === 'user',
+    try {
+      const phraseSnapshot = phraseRef.current || wordRef.current || songTitleRef.current || 'Lyric Lens'
+      const wordSnapshot = wordRef.current
+      const songPositionSnapshot = songPositionRef.current
+      const songDurationSnapshot = songDurationRef.current
+      const filterSnapshot = captureFilterRef.current
+      const interactionSnapshot = camera.enabled ? null : lastInteractionRef.current
+      const captureFilterSnapshot = filterSnapshot
+        ? {
+            ...filterSnapshot,
+            cameraOffInteraction: interactionSnapshot ?? undefined,
+            exportLongSide: camera.enabled ? 1600 : 1280,
+          }
+        : null
+      const shouldUseFilteredFrame = Boolean(filterEnabledRef.current && captureFilterSnapshot)
+      const cameraOffBackdropFilter = !camera.enabled && captureFilterSnapshot
+        ? {
+            ...captureFilterSnapshot,
+            canvasFilter: 'none',
+            filmPresetId: undefined,
+            filmPresetLabel: undefined,
+            tintOpacity: 0,
+            filmTintOpacity: 0,
+            filmGrainOpacity: 0,
+            filmVignetteOpacity: 0,
+            filmLeakOpacity: 0,
+          }
+        : null
+      navigator.vibrate?.(30)
+      setAfPulse(value => value + 1)
+      setCurtainPhase('closing')
+      setFlashKey(value => value + 1)
+      await wait(95)
+      setCurtainPhase('opening')
+      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
+      if (!camera.enabled) {
+        await wait(110)
+      }
+
+      const frameNumber = capturesRef.current.length + 1
+      const frameRect = frameRef.current?.getBoundingClientRect()
+      const captureSize = frameRect ? { width: frameRect.width, height: frameRect.height } : undefined
+      const videoElement = camera.enabled && videoRef.current ? videoRef.current : null
+      const mirrorVideo = camera.facingMode === 'user'
+      let rawFrame = await captureFrameAsync(
+        videoElement,
+        phraseSnapshot,
+        wordSnapshot,
+        songTitleRef.current,
+        frameNumber,
+        captureSize,
+        cameraOffBackdropFilter,
+        mirrorVideo,
+      )
+      let filteredFrame = captureFilterSnapshot
+        ? await captureFrameAsync(
+            videoElement,
+            phraseSnapshot,
+            wordSnapshot,
+            songTitleRef.current,
+            frameNumber,
+            captureSize,
+            captureFilterSnapshot,
+            mirrorVideo,
+          )
+        : rawFrame
+      if (!camera.enabled && frameRef.current) {
+        const liveFrame = await captureElementFrameAsync(
+          frameRef.current,
+          captureFilterSnapshot ?? cameraOffBackdropFilter,
         )
-      : rawFrame
-    const selectedFrame = shouldUseFilteredFrame ? filteredFrame : rawFrame
 
-    appendCapture({
-      id: `${Date.now()}-${frameNumber}`,
-      dataUrl: selectedFrame.dataUrl,
-      rawDataUrl: rawFrame.dataUrl,
-      filteredDataUrl: filteredFrame.dataUrl,
-      width: selectedFrame.width,
-      height: selectedFrame.height,
-      phrase: phraseSnapshot,
-      timestamp: Date.now(),
-      songPosition: songPositionSnapshot,
-    })
+        if (shouldUseFilteredFrame) {
+          filteredFrame = liveFrame
+        } else {
+          rawFrame = liveFrame
+        }
+      }
+      const selectedFrame = shouldUseFilteredFrame ? filteredFrame : rawFrame
+      const captureId = `${Date.now()}-${frameNumber}`
 
-    setFlashKey(value => value + 1)
-    setCurtainPhase('opening')
-    await wait(130)
-    setCurtainPhase('idle')
-    shutterBusyRef.current = false
-  }, [appendCapture, camera.enabled, camera.facingMode])
+      appendCapture({
+        id: captureId,
+        dataUrl: selectedFrame.dataUrl,
+        rawDataUrl: rawFrame.dataUrl,
+        filteredDataUrl: captureFilterSnapshot ? filteredFrame.dataUrl : undefined,
+        width: selectedFrame.width,
+        height: selectedFrame.height,
+        phrase: phraseSnapshot,
+        timestamp: Date.now(),
+        songPosition: songPositionSnapshot,
+        songDuration: songDurationSnapshot,
+        songTitle: songTitleRef.current,
+        bpm: bpmRef.current,
+        chordName: chordNameRef.current,
+        isChorus: isChorusRef.current,
+        vocalIntensity: vocalIntensityRef.current,
+        tintHue: captureFilterSnapshot?.tintHue,
+        filmPresetId: captureFilterSnapshot?.filmPresetId,
+        filmPresetLabel: captureFilterSnapshot?.filmPresetLabel,
+        cameraOffVisualMode: camera.enabled ? undefined : cameraOffVisualMode,
+        cameraOffInteraction: interactionSnapshot ?? undefined,
+        shutterEffect,
+        captureSource,
+        triggerText,
+        filterEnabledAtCapture: Boolean(shouldUseFilteredFrame),
+      })
+
+      await wait(130)
+    } catch (error) {
+      console.error('Capture failed', error)
+      setCaptureError('撮影画像を保存できませんでした。もう一度シャッターを押してね。')
+    } finally {
+      setCurtainPhase('idle')
+      shutterBusyRef.current = false
+    }
+  }, [appendCapture, camera.enabled, camera.facingMode, cameraOffVisualMode])
 
   const cancelCountdown = useCallback(() => {
     countdownRunRef.current += 1
@@ -890,7 +1529,7 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
 
   const handleManualShutter = useCallback(() => {
     cancelCountdown()
-    void handleShutter()
+    void handleShutter('default', 'manual')
   }, [cancelCountdown, handleShutter])
 
   const handleTriggerShutter = useCallback(
@@ -920,19 +1559,21 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
         if (countdownRunRef.current !== runId) return
         setCountdownValue(null)
 
-        const effect = trigger.effect
+        const effect = trigger.effect ?? 'default'
         if (effect && effect !== 'default') {
           setEffectKey(k => k + 1)
           setActiveEffect(effect)
+          activeEffectRef.current = effect
           await wait(getEffectDuration(effect))
           if (countdownRunRef.current !== runId) return
         }
 
-        await handleShutter()
+        await handleShutter(effect, 'auto', triggerText)
       } finally {
         if (countdownRunRef.current === runId) {
           setCountdownValue(null)
           setActiveEffect(null)
+          activeEffectRef.current = null
           countdownBusyRef.current = false
         }
       }
@@ -976,6 +1617,7 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
     currentPhrase,
     currentWord,
     progress,
+    duration,
     songTitle,
     bpm,
     error,
@@ -997,19 +1639,54 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
     songOptions,
     onPhraseChange,
     handleWordChange,
-    position => {
+    (position, nextDuration) => {
       songPositionRef.current = position
+      songDurationRef.current = nextDuration
     },
   )
 
   phraseRef.current = currentPhrase
   wordRef.current = currentWord
-  songTitleRef.current = songTitle
+  const displaySongTitle = songTitle || fallbackSongTitle
+  const cameraOffStudioScene = getCameraOffStudioScene({
+    isChorus,
+    chorusProgress,
+    vocalIntensity,
+    word: currentWord,
+  })
+  const cameraOffStudioPalette = useMemo(() => getCameraOffStudioPalette({
+    songUrl,
+    songTitle: displaySongTitle,
+    lyricColorHue,
+    currentChordName,
+    songPersonality,
+    bpm,
+    vocalIntensity,
+  }), [
+    bpm,
+    currentChordName,
+    displaySongTitle,
+    lyricColorHue,
+    songPersonality,
+    songUrl,
+    vocalIntensity,
+  ])
+
+  songTitleRef.current = displaySongTitle
+  songDurationRef.current = duration
   bpmRef.current = bpm
+  chordNameRef.current = currentChordName
+  isChorusRef.current = isChorus
+  vocalIntensityRef.current = vocalIntensity
   isPlayingRef.current = isPlaying
   autoModeRef.current = autoMode
   filterEnabledRef.current = filterEnabled
+  activeEffectRef.current = activeEffect
 
+  const selectedFilmPreset = useMemo(
+    () => getFilmPreset(selectedFilmPresetId),
+    [selectedFilmPresetId],
+  )
   const captureFilter = useMemo<CaptureFilter>(() => {
     const visualSettings = getMoodVisualSettings({
       valenceArousal: currentValenceArousal,
@@ -1023,23 +1700,189 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
     })
 
     return {
-      canvasFilter: visualSettings.canvasFilter,
+      canvasFilter: combineFilters(visualSettings.canvasFilter, selectedFilmPreset.cssFilter),
+      filmPresetId: selectedFilmPreset.id,
+      filmPresetLabel: selectedFilmPreset.label,
+      filmCssFilter: selectedFilmPreset.cssFilter,
+      filmTintHue: selectedFilmPreset.tintHue,
+      filmTintSaturation: selectedFilmPreset.tintSaturation,
+      filmTintLightness: selectedFilmPreset.tintLightness,
+      filmTintOpacity: selectedFilmPreset.tintOpacity,
+      filmGrainOpacity: selectedFilmPreset.grainOpacity,
+      filmVignetteOpacity: selectedFilmPreset.vignetteOpacity,
+      filmLeakHue: selectedFilmPreset.leakHue,
+      filmLeakOpacity: selectedFilmPreset.leakOpacity,
       tintHue: visualSettings.tintHue,
       tintSaturation: visualSettings.tintSaturation,
       tintLightness: visualSettings.tintLightness,
       tintOpacity: visualSettings.tintOpacity,
+      bpm,
+      chordName: currentChordName,
+      isChorus,
+      chorusProgress,
+      vocalIntensity,
+      cameraOffMode: cameraOffVisualMode,
+      cameraOffStudioScene,
+      studioLeftHue: cameraOffStudioPalette.leftHue,
+      studioRightHue: cameraOffStudioPalette.rightHue,
+      studioAccentHue: cameraOffStudioPalette.accentHue,
+      studioTextPrimaryHue: cameraOffStudioPalette.textPrimaryHue,
+      studioTextSecondaryHue: cameraOffStudioPalette.textSecondaryHue,
+      studioSaturation: cameraOffStudioPalette.saturation,
+      studioLeftLightness: cameraOffStudioPalette.leftLightness,
+      studioRightLightness: cameraOffStudioPalette.rightLightness,
     }
   }, [
     bpm,
+    cameraOffVisualMode,
+    cameraOffStudioScene,
+    cameraOffStudioPalette,
+    chorusProgress,
     currentChordName,
     currentValenceArousal,
     isChorus,
     lyricColorHue,
+    selectedFilmPreset,
     songMedianValenceArousal,
     songPersonality,
     vocalIntensity,
   ])
   captureFilterRef.current = captureFilter
+
+  const shouldIgnoreFramePointer = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false
+    if (target.closest('[data-mv-interaction-pad="true"]')) return false
+    if (!camera.enabled && target.closest('video')) return true
+
+    return Boolean(target.closest('button, input, select, [data-no-mv-interaction="true"]'))
+  }
+
+  useEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return
+
+    const getNativePoint = (event: PointerEvent) => {
+      const rect = frame.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return null
+
+      return {
+        x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+        y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+      }
+    }
+
+    const isInsideFrame = (event: Event) =>
+      event.target instanceof Node && frame.contains(event.target)
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!isInsideFrame(event) || shouldIgnoreFramePointer(event.target)) return
+      const point = getNativePoint(event)
+      if (!point) return
+
+      if (event.target instanceof HTMLElement) {
+        try {
+          event.target.setPointerCapture?.(event.pointerId)
+        } catch {
+          // Some automated browsers synthesize pointer events without an active pointer capture slot.
+        }
+      }
+
+      window.clearTimeout(interactionStartRef.current?.longPressTimer)
+      const startedAt = performance.now()
+      publishCameraOffInteraction({
+        kind: 'press-arming',
+        x: point.x,
+        y: point.y,
+        intensity: 0.38,
+      })
+      const longPressTimer = window.setTimeout(() => {
+        publishCameraOffInteraction({
+          kind: 'press-charge',
+          x: point.x,
+          y: point.y,
+          intensity: 1,
+        })
+      }, 420)
+
+      interactionStartRef.current = {
+        pointerId: event.pointerId,
+        x: point.x,
+        y: point.y,
+        lastX: point.x,
+        lastY: point.y,
+        lastPublishedAt: startedAt,
+        startedAt,
+        longPressTimer,
+        dragging: false,
+      }
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      const start = interactionStartRef.current
+      if (!start || start.pointerId !== event.pointerId) return
+      const point = getNativePoint(event)
+      if (!point) return
+
+      const distance = Math.hypot(point.x - start.x, point.y - start.y)
+      if (distance < 0.032) return
+      const moveDistance = Math.hypot(point.x - start.lastX, point.y - start.lastY)
+      const now = performance.now()
+      if (moveDistance < 0.018 && now - start.lastPublishedAt < 48) return
+
+      start.dragging = true
+      start.lastX = point.x
+      start.lastY = point.y
+      start.lastPublishedAt = now
+      window.clearTimeout(start.longPressTimer)
+      publishCameraOffInteraction({
+        kind: 'drag-trail',
+        x: point.x,
+        y: point.y,
+        intensity: Math.min(1, 0.50 + distance * 2.2),
+        points: getDragPoints(start, point),
+      })
+    }
+
+    const onPointerUp = (event: PointerEvent) => {
+      const start = interactionStartRef.current
+      if (!start || start.pointerId !== event.pointerId) return
+      window.clearTimeout(start.longPressTimer)
+      const point = getNativePoint(event) ?? { x: start.x, y: start.y }
+      const elapsed = performance.now() - start.startedAt
+      const distance = Math.hypot(point.x - start.x, point.y - start.y)
+
+      if (!start.dragging && elapsed < 420 && distance < 0.032) {
+        publishCameraOffInteraction({
+          kind: 'tap-burst',
+          x: point.x,
+          y: point.y,
+          intensity: 0.78,
+        })
+      }
+
+      interactionStartRef.current = null
+    }
+
+    const onPointerCancel = (event: PointerEvent) => {
+      const start = interactionStartRef.current
+      if (start?.pointerId === event.pointerId) {
+        window.clearTimeout(start.longPressTimer)
+        interactionStartRef.current = null
+      }
+    }
+
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('pointerup', onPointerUp, true)
+    document.addEventListener('pointercancel', onPointerCancel, true)
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('pointerup', onPointerUp, true)
+      document.removeEventListener('pointercancel', onPointerCancel, true)
+    }
+  }, [camera.enabled, publishCameraOffInteraction])
 
   const finish = useCallback(() => {
     if (finishedRef.current) return
@@ -1066,28 +1909,67 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
   }, [autoMode, cancelCountdown, isPlaying])
 
   useEffect(() => {
+    return () => {
+      window.clearTimeout(colorHueTimerRef.current)
+      window.clearTimeout(interactionClearTimerRef.current)
+      window.clearTimeout(interactionStartRef.current?.longPressTimer)
+    }
+  }, [])
+
+  useEffect(() => {
     setCanSwitchFacingCamera(!cameraDeviceId && isMobileLikeDevice())
   }, [cameraDeviceId])
+
+  useEffect(() => {
+    const motionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const pointerMedia = window.matchMedia('(pointer: coarse)')
+    const updateRenderQuality = () => setCameraOffRenderQuality(getCameraOffRenderQuality())
+
+    updateRenderQuality()
+    motionMedia.addEventListener('change', updateRenderQuality)
+    pointerMedia.addEventListener('change', updateRenderQuality)
+    window.addEventListener('resize', updateRenderQuality)
+
+    return () => {
+      motionMedia.removeEventListener('change', updateRenderQuality)
+      pointerMedia.removeEventListener('change', updateRenderQuality)
+      window.removeEventListener('resize', updateRenderQuality)
+    }
+  }, [])
 
   useEffect(() => {
     if (finishedRef.current || !isLoaded || progress < 0.995) return
     finish()
   }, [finish, isLoaded, progress])
 
+  const liveBackdropFilter = filterEnabled && captureFilter.canvasFilter !== 'none' && (
+    camera.enabled || cameraOffRenderQuality === 'full'
+  )
+    ? captureFilter.canvasFilter
+    : undefined
+
+  const isCameraOffLightRender = !camera.enabled && cameraOffRenderQuality === 'light'
+  const showSignalOverlay = camera.enabled || cameraOffRenderQuality === 'full'
+
   return (
-    <section className="grid min-h-dvh grid-rows-[1fr_auto] overflow-hidden bg-paper">
+    <section className={`grid min-h-dvh w-full min-w-0 max-w-[100vw] grid-rows-[1fr_auto] overflow-hidden bg-paper ${
+      isCameraOffLightRender ? 'player-performance-light' : ''
+    }`}>
       <div
         ref={mediaRef}
         className="pointer-events-none fixed left-0 top-0 h-px w-px overflow-hidden opacity-0"
       />
 
-      <div className="relative min-h-0 overflow-hidden p-3 md:p-5">
+      <div className="relative flex min-h-0 min-w-0 overflow-hidden p-2 sm:p-3 md:p-5">
         <div
           ref={frameRef}
-          className="relative h-full min-h-[360px] overflow-hidden rounded-lg border-2 border-ink bg-white shadow-sketch select-none touch-manipulation sm:min-h-[460px]"
+          className="relative h-full min-h-[300px] w-full min-w-0 max-w-full overflow-hidden rounded-lg border-2 border-ink bg-white shadow-sketch select-none touch-manipulation sm:min-h-[460px]"
         >
           <motion.div
             className="absolute inset-0"
+            style={{
+              filter: liveBackdropFilter,
+            }}
             animate={
               activeEffect === 'focus-zoom'
                 ? { scale: 1.12, rotate: -1.8 }
@@ -1099,45 +1981,85 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
             }
             transition={{ type: 'spring', stiffness: 130, damping: 14 }}
           >
-            <CameraBackdrop enabled={camera.enabled} facingMode={camera.facingMode} videoRef={videoRef} />
+            <CameraBackdrop
+              enabled={camera.enabled}
+              facingMode={camera.facingMode}
+              videoRef={videoRef}
+              bpm={bpm}
+              songTitle={displaySongTitle}
+              phrase={currentPhrase}
+              word={currentWord}
+              visualMode={cameraOffVisualMode}
+              currentChordName={currentChordName}
+              isChorus={isChorus}
+              chorusProgress={chorusProgress}
+              vocalIntensity={vocalIntensity}
+              lyricColorHue={lyricColorHue}
+              studioScene={cameraOffStudioScene}
+              songUrl={songUrl}
+              songPersonality={songPersonality}
+              interaction={cameraOffInteraction}
+              renderQuality={camera.enabled ? 'full' : cameraOffRenderQuality}
+            />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_44%,transparent_0%,transparent_57%,rgba(26,26,31,0.18)_100%)]" />
           </motion.div>
 
           {filterEnabled && (
-            <MoodColorOverlay
-              valenceArousal={currentValenceArousal}
-              songMedianValenceArousal={songMedianValenceArousal}
-              songPersonality={songPersonality}
-              bpm={bpm}
-              lyricColorHue={lyricColorHue}
+            <>
+              <MoodColorOverlay
+                tintHue={captureFilter.tintHue}
+                tintSaturation={captureFilter.tintSaturation}
+                tintLightness={captureFilter.tintLightness}
+                tintOpacity={captureFilter.tintOpacity}
+              />
+              <FilmLookOverlay
+                film={selectedFilmPreset}
+                renderQuality={camera.enabled ? 'full' : cameraOffRenderQuality}
+              />
+            </>
+          )}
+
+          {camera.enabled && (
+            <CameraLiveInteractionOverlay
+              interaction={cameraOffInteraction}
               currentChordName={currentChordName}
               isChorus={isChorus}
+            />
+          )}
+
+          {!camera.enabled && (
+            <div
+              data-mv-interaction-pad="true"
+              className="absolute inset-0 z-[18] cursor-crosshair bg-transparent text-[0px] touch-none"
+              aria-hidden="true"
+            />
+          )}
+
+          {showSignalOverlay && (
+            <MusicSignalOverlay
+              currentChordName={currentChordName}
+              isChorus={isChorus}
+              chorusProgress={chorusProgress}
               vocalIntensity={vocalIntensity}
             />
           )}
 
-          <MusicSignalOverlay
-            currentChordName={currentChordName}
-            isChorus={isChorus}
-            chorusProgress={chorusProgress}
-            vocalIntensity={vocalIntensity}
-          />
-
           <ViewfinderOverlay
             afPulse={afPulse}
             bpm={bpm}
-            songTitle={songTitle}
+            songTitle={displaySongTitle}
             shotCount={captures.length}
             currentChordName={currentChordName}
             isChorus={isChorus}
             vocalIntensity={vocalIntensity}
+            filmLabel={filterEnabled ? selectedFilmPreset.label : null}
           />
           <LyricDisplay phrase={currentPhrase} word={currentWord} />
           <CountdownOverlay value={countdownValue} />
           <EffectOverlay effect={activeEffect} effectKey={effectKey} />
           <ShutterCurtain phase={curtainPhase} flashKey={flashKey} />
 
-          <div className="absolute left-4 top-14 z-40 flex flex-wrap items-center gap-2">
+          <div className="absolute left-3 top-12 z-40 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 sm:left-4 sm:top-14 sm:max-w-[calc(100%-2rem)]" data-capture-exclude="true">
             <button
               type="button"
               onClick={() => { void camera.toggle() }}
@@ -1167,10 +2089,15 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
                 {camera.error}
               </div>
             )}
+            {captureError && (
+              <div className="rounded-md border border-red-500 bg-white/90 px-3 py-2 text-xs font-bold text-red-700">
+                {captureError}
+              </div>
+            )}
           </div>
 
           {!isLoaded && !error && (
-            <div className="absolute inset-0 z-40 grid place-items-center bg-white/42 backdrop-blur-[2px]">
+            <div className="absolute inset-0 z-40 grid place-items-center bg-white/42 backdrop-blur-[2px]" data-capture-exclude="true">
               <div className="rounded-md border-2 border-ink bg-paper px-5 py-3 font-display text-2xl font-black tracking-[0.12em] shadow-sketch">
                 LOADING
               </div>
@@ -1186,6 +2113,8 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
         shotCount={captures.length}
         autoMode={autoMode}
         filterEnabled={filterEnabled}
+        filmPresets={FILM_PRESETS}
+        selectedFilmPresetId={selectedFilmPresetId}
         onPlay={play}
         onPause={pause}
         onShutter={handleManualShutter}
@@ -1202,6 +2131,11 @@ export default function PlayerView({ token, songUrl, songOptions, cameraDeviceId
             filterEnabledRef.current = nextValue
             return nextValue
           })
+        }}
+        onSelectFilm={presetId => {
+          setSelectedFilmPresetId(presetId)
+          setFilterEnabled(true)
+          filterEnabledRef.current = true
         }}
         onFinish={finish}
         onSeek={seek}

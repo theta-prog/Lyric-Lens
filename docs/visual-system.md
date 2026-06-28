@@ -94,9 +94,10 @@ In `src/components/PlayerView.tsx`, the player view is layered roughly like this
 1. `CameraBackdrop`
    - Live camera video when camera is enabled.
    - Illustrated fallback background when camera is unavailable or off.
+   - Camera-off mode defaults to `SHUTTER MV`, a bright Shutter Chance-inspired studio built from pastel cyan/yellow fields, white frame lines, sticker-like typography, hand-drawn marks, stacked photo/social cards, and small confetti dots.
 2. Radial vignette
 3. `MoodColorOverlay`
-   - Enabled by the `FILTER` control.
+   - Enabled by the `FILM` control.
    - Uses valence/arousal, chord, chorus, vocal intensity, lyric color keywords, and song fallback personality.
 4. `MusicSignalOverlay`
    - Chord color bar
@@ -224,9 +225,66 @@ Debounce rules:
 
 Effect animations are defined in `src/index.css`.
 
+## Camera-Off SHUTTER MV
+
+Camera-off mode is treated as a first-class performance path instead of a generic fallback.
+The default camera-off visual mode is `mv`.
+
+The MV scene has three internal states:
+
+| Scene | Trigger | Visual behavior |
+| --- | --- | --- |
+| `verse` | Default camera-off playback | Calm pastel cyan/yellow split, white viewfinder frame, hand-drawn marks, card stack depth. |
+| `build` | Shutter-related word, high vocal intensity, or late chorus progress | Larger white shutter gate, stronger frame pulse, more active typography. |
+| `chorus` | TextAlive chorus segment | Strongest frame punch, wider gate, `SHUTTER CHANCE` label, higher scene drive. |
+
+This scene selection is computed in `getCameraOffStudioScene()` in `src/components/PlayerView.tsx`.
+The same scene value is passed into `captureFrame()` so exported camera-off captures keep the same visual language as the on-screen MV.
+
+`シャッターチャンス` keeps a fixed pastel cyan/yellow palette to stay close to the song MV language.
+Other songs derive their camera-off MV palette from lyric color keywords, current chord hue, preset song personality, BPM, and vocal intensity.
+High-energy songs such as `TAKEOVER` spread the hue range and saturation more aggressively, while calmer songs stay softer and closer in hue.
+
+Large MV typography avoids ellipsis.
+On-screen text uses weighted character length to reduce the front/back type size and allows natural wrapping.
+Exported captures use a matching two-line sticker-text fitter so long lyric words or phrases are resized instead of being clipped.
+
 ## Capture Output
 
 Capturing is implemented in `src/utils/capture.ts`.
+
+## Film Loader
+
+The playback bar uses a `FILM` loader instead of a generic filter toggle.
+Choosing a film also enables the film look, so the action feels like loading a cartridge before taking a shot.
+
+| Film | Intent |
+| --- | --- |
+| `MV FILM` | Default Shutter Chance cyan/yellow color identity with light grain. |
+| `SEPIA 400` | Warm analog print, stronger grain, and a small burn edge. |
+| `MONO 800` | High-contrast monochrome with heavier grain and vignette. |
+| `CINE GOLD` | Warm stage/cinema stock with visible light leak. |
+| `SIGNAL CHROME` | Saturated cyan/pink signal look for energetic songs. |
+
+When `FILM` is on, the selected film affects the live preview, filtered capture image, result toggles, and story source frames.
+Raw captures remain available in the result view.
+
+## Camera-Off Touch Interactions
+
+Camera-off touch gestures are designed as camera/film operations instead of generic pointer effects.
+
+| Gesture | On-screen behavior | Capture behavior |
+| --- | --- | --- |
+| Tap | Shutter ring / burn frame with a small local focus blur at the tap point. | Captured frame keeps a subtle local exposure blur at the shutter point. |
+| Hold | Exposure/development tank fills while the press is armed or charged, with a brief blur and overexposure wash. | Captured frame draws the partially or fully filled development tank, exposure meter, and a soft exposed haze. |
+| Drag | Film advance strip follows the drag path with perforations, a pulled light leak, and a soft smeared blur. | Captured frame draws film perforations, a wipe band, and the drag path as a blurred light/development streak. |
+
+## Performance Notes
+
+The shutter path renders only the selected output and does not generate an alternate raw/FILM image during playback.
+Camera-off capture uses a shorter long side than live-camera capture to reduce canvas and JPEG encode time.
+Camera-off background motion is intentionally mostly static; gesture and shutter moments carry the motion instead of many always-running CSS animations.
+Touch interaction blur avoids `backdrop-filter` during gestures; mobile/coarse-pointer CSS also removes heavy shadows and reduces drag-strip size.
 
 The exported image:
 
@@ -257,7 +315,7 @@ Playback controls live in `src/components/PlaybackBar.tsx`.
 | Play/pause | Calls TextAlive `requestPlay()` / `requestPause()`. |
 | Seek slider | Uses `startVideoSeek()`, `requestMediaSeek()`, and `endVideoSeek()`. |
 | AUTO | Enables/disables lyric keyword auto shutter. |
-| FILTER | Enables/disables mood color overlay and determines whether the filtered capture is selected by default. |
+| FILM | Enables/disables the loaded film look and determines whether the developed capture is selected by default. |
 | Shutter button | Manual capture. Cancels any auto countdown first. |
 | 現像 | Moves to result view. |
 

@@ -44,7 +44,13 @@ export default function App() {
         )}
 
         {phase === 'result' && (
-          <ResultView captures={captures} onRestart={handleRestart} />
+          <ResultView
+            captures={captures}
+            token={TEXTALIVE_TOKEN}
+            songUrl={config?.songUrl ?? ''}
+            songOptions={config?.songOptions}
+            onRestart={handleRestart}
+          />
         )}
       </main>
     </div>

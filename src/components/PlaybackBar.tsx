@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FilmPresetId } from '../types'
 
 interface FilmControlPreset {
@@ -51,9 +51,28 @@ export default function PlaybackBar({
 }: PlaybackBarProps) {
   const [dragValue, setDragValue] = useState<number | null>(null)
   const value = dragValue ?? Math.round(progress * 1000)
+  const seekActiveRef = useRef(false)
+  const latestValueRef = useRef(value)
+  latestValueRef.current = value
+
+  const finishSeek = useCallback((nextValue = latestValueRef.current, clearDragValue = true) => {
+    if (!seekActiveRef.current) return
+
+    seekActiveRef.current = false
+    onSeekEnd(nextValue / 1000)
+    if (clearDragValue) {
+      setDragValue(null)
+    }
+  }, [onSeekEnd])
+
+  useEffect(() => {
+    return () => {
+      finishSeek(latestValueRef.current, false)
+    }
+  }, [finishSeek])
 
   return (
-    <div className="border-t-2 border-ink bg-white/72 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur md:px-5">
+    <div className="w-full min-w-0 max-w-full overflow-hidden border-t-2 border-ink bg-white/72 px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:px-3 sm:pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pt-3 md:px-5">
       <input
         type="range"
         min={0}
@@ -61,20 +80,37 @@ export default function PlaybackBar({
         value={value}
         disabled={!isLoaded}
         aria-label="再生位置"
-        onPointerDown={() => {
+        onPointerDown={event => {
+          seekActiveRef.current = true
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId)
+          } catch {
+            // Some browsers do not allow pointer capture on range inputs.
+          }
           setDragValue(Math.round(progress * 1000))
           onSeekStart()
         }}
         onChange={event => {
           const nextValue = Number(event.target.value)
-          setDragValue(nextValue)
+          const isPointerSeeking = seekActiveRef.current
+
+          if (!isPointerSeeking) {
+            onSeekStart()
+          }
           onSeek(nextValue / 1000)
+          if (!isPointerSeeking) {
+            onSeekEnd(nextValue / 1000)
+            return
+          }
+
+          setDragValue(nextValue)
         }}
         onPointerUp={event => {
           const nextValue = Number((event.target as HTMLInputElement).value)
-          onSeekEnd(nextValue / 1000)
-          setDragValue(null)
+          finishSeek(nextValue)
         }}
+        onPointerCancel={() => finishSeek()}
+        onBlur={() => finishSeek()}
         className="w-full accent-yellow disabled:opacity-40"
       />
 
@@ -82,12 +118,12 @@ export default function PlaybackBar({
         Two-row on mobile: controls top, shutter centered below.
         Single row on sm+: all inline (shutter wrapper collapses to auto width).
       */}
-      <div className="mt-3 flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
+      <div className="mt-2 flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:mt-3 sm:flex-nowrap sm:gap-3">
         <button
           type="button"
           onClick={isPlaying ? onPause : onPlay}
           disabled={!isLoaded}
-          className="control-button h-11 w-11 shrink-0 text-base touch-manipulation"
+          className="control-button order-1 h-11 w-11 shrink-0 text-base touch-manipulation max-[380px]:h-10 max-[380px]:w-10 sm:order-none"
           aria-label={isPlaying ? '一時停止' : '再生'}
         >
           {isPlaying ? 'II' : '▶'}
@@ -96,7 +132,7 @@ export default function PlaybackBar({
         <button
           type="button"
           onClick={onToggleAutoMode}
-          className={`h-11 shrink-0 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition touch-manipulation ${
+          className={`order-1 h-11 min-w-0 shrink-0 rounded-md border-2 border-ink px-3 text-xs font-black tracking-[0.14em] transition touch-manipulation max-[380px]:h-10 max-[380px]:px-2 max-[380px]:text-[0.68rem] sm:order-none ${
             autoMode ? 'bg-cyan text-ink' : 'bg-paper text-ink-light'
           }`}
           aria-pressed={autoMode}
@@ -105,7 +141,7 @@ export default function PlaybackBar({
           AUTO
         </button>
 
-        <div className="film-loader flex min-w-0 flex-1 items-center gap-1 rounded-md border-2 border-ink bg-paper p-1 sm:flex-none">
+        <div className="film-loader order-2 flex min-w-0 w-full flex-none items-center gap-1 overflow-hidden rounded-md border-2 border-ink bg-paper p-1 sm:order-none sm:w-auto sm:flex-none">
           <button
             type="button"
             onClick={onToggleFilter}
@@ -117,7 +153,7 @@ export default function PlaybackBar({
           >
             FILM
           </button>
-          <div className="flex min-w-0 gap-1 overflow-x-auto">
+          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
             {filmPresets.map(preset => (
               <button
                 key={preset.id}
@@ -138,7 +174,7 @@ export default function PlaybackBar({
           </div>
         </div>
 
-        <div className="min-w-10 shrink-0 font-display text-xl font-black tabular-nums text-ink sm:min-w-16 sm:text-2xl">
+        <div className="order-1 min-w-9 shrink-0 text-center font-display text-xl font-black tabular-nums text-ink max-[380px]:text-lg sm:order-none sm:min-w-16 sm:text-2xl">
           {String(shotCount).padStart(3, '0')}
         </div>
 
@@ -148,7 +184,7 @@ export default function PlaybackBar({
         <button
           type="button"
           onClick={onFinish}
-          className="ml-auto h-11 shrink-0 rounded-md border-2 border-ink bg-paper px-4 text-sm font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation sm:ml-0"
+          className="order-1 h-11 shrink-0 rounded-md border-2 border-ink bg-paper px-4 text-sm font-black tracking-[0.1em] text-ink transition hover:bg-white touch-manipulation max-[380px]:h-10 max-[380px]:px-3 max-[380px]:text-xs sm:order-none"
         >
           現像
         </button>

@@ -138,6 +138,7 @@ const LYRIC_EARLY_TOLERANCE_MS = 24
 const LYRIC_LATE_TOLERANCE_MS = 48
 const LYRIC_HOLD_MS = 80
 const STARTUP_LYRIC_SYNC_WINDOW_MS = 320
+const LYRIC_LOOKUP_INTERVAL_MS = 33
 const MOOD_UPDATE_INTERVAL_MS = 500
 const VOCAL_INTENSITY_EPSILON = 0.06
 const CHORUS_PROGRESS_EPSILON = 0.045
@@ -287,6 +288,7 @@ export function useTextAlive(
         }
 
         let lastMoodUpdateMs = 0
+        let lastLyricLookupMs = -Infinity
         let maxVocalAmplitude: number | null = null
 
         const syncLyrics = (audioPosition: number) => {
@@ -297,6 +299,12 @@ export function useTextAlive(
             audioPosition * lyricRateRef.current + lyricOffsetRef.current,
           )
           onPositionUpdateRef.current?.(audioPosition, duration)
+
+          const nowMs = performance.now()
+          if (!debugLyricsRef.current && nowMs - lastLyricLookupMs < LYRIC_LOOKUP_INTERVAL_MS) {
+            return
+          }
+          lastLyricLookupMs = nowMs
 
           const phrase = findActiveTimedUnit(video?.findPhrase?.bind(video), lyricPosition)
           const word = findActiveTimedUnit(video?.findWord?.bind(video), lyricPosition)
@@ -366,7 +374,6 @@ export function useTextAlive(
 
           // Throttled valence/arousal mood update. These values drive full-screen
           // visual layers, so skip tiny changes that would only cause extra renders.
-          const nowMs = performance.now()
           if (nowMs - lastMoodUpdateMs >= MOOD_UPDATE_INTERVAL_MS) {
             lastMoodUpdateMs = nowMs
             let nextChordName = ''

@@ -149,6 +149,96 @@ export async function captureFrameAsync(
   return { dataUrl, width, height }
 }
 
+function getInlineDocumentStyles() {
+  return Array.from(document.styleSheets)
+    .map(styleSheet => {
+      try {
+        return Array.from(styleSheet.cssRules)
+          .map(rule => rule.cssText)
+          .join('\n')
+      } catch {
+        return ''
+      }
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function loadSvgImage(svg: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('撮影フレームの画像化に失敗しました。'))
+    image.src = dataUrl
+  })
+}
+
+export async function captureElementFrameAsync(
+  element: HTMLElement,
+  filter?: CaptureFilter | null,
+): Promise<CapturedFrame> {
+  const rect = element.getBoundingClientRect()
+  const sourceSize = {
+    width: Math.max(1, rect.width),
+    height: Math.max(1, rect.height),
+  }
+  const { width, height } = normalizeExportSize(sourceSize, filter)
+  const clone = element.cloneNode(true) as HTMLElement
+
+  clone.style.width = `${sourceSize.width}px`
+  clone.style.height = `${sourceSize.height}px`
+  clone.style.margin = '0'
+  clone.style.transform = 'none'
+  clone.style.border = '0'
+  clone.style.borderRadius = '0'
+  clone.style.boxShadow = 'none'
+  clone
+    .querySelectorAll('[data-capture-exclude="true"], [class*="z-[46]"], .curtain, .animate-flashFade')
+    .forEach(node => node.remove())
+
+  const cssText = getInlineDocumentStyles().replaceAll(']]>', ']]]]><![CDATA[>')
+  const serializedClone = new XMLSerializer().serializeToString(clone)
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${sourceSize.width}" height="${sourceSize.height}" viewBox="0 0 ${sourceSize.width} ${sourceSize.height}">
+      <foreignObject width="100%" height="100%">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="width:${sourceSize.width}px;height:${sourceSize.height}px;margin:0;overflow:hidden;">
+          <style><![CDATA[${cssText}]]></style>
+          ${serializedClone}
+        </div>
+      </foreignObject>
+    </svg>
+  `
+  const image = await loadSvgImage(svg)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.86), width, height }
+  }
+
+  ctx.drawImage(image, 0, 0, width, height)
+
+  const blob = await new Promise<Blob | null>(resolve => {
+    canvas.toBlob(resolve, 'image/jpeg', 0.9)
+  })
+
+  if (!blob) {
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.86), width, height }
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error ?? new Error('画像のエンコードに失敗しました。'))
+    reader.readAsDataURL(blob)
+  })
+
+  return { dataUrl, width, height }
+}
+
 function renderFrameCanvas(
   videoEl: HTMLVideoElement | null,
   phrase: string,

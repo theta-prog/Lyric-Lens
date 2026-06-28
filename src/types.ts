@@ -6,6 +6,7 @@ export type CameraOffVisualMode = 'classic' | 'shutter-mv' | 'film-studio' | 'si
 export type CameraOffStudioScene = 'verse' | 'build' | 'chorus'
 export type CameraOffInteractionKind = 'tap-burst' | 'press-arming' | 'press-charge' | 'drag-trail'
 export type FilmPresetId = 'mv-film' | 'sepia-400' | 'mono-800' | 'cine-gold' | 'signal-chrome'
+export type CaptureSource = 'manual' | 'auto'
 export type ShutterEffect =
   | 'default'
   | 'finder'
@@ -48,6 +49,7 @@ export interface CaptureItem {
   phrase: string
   timestamp: number
   songPosition: number
+  songDuration?: number
   songTitle?: string
   bpm?: number
   chordName?: string
@@ -59,6 +61,8 @@ export interface CaptureItem {
   cameraOffVisualMode?: CameraOffVisualMode
   cameraOffInteraction?: CameraOffInteractionSnapshot
   shutterEffect?: ShutterEffect
+  captureSource?: CaptureSource
+  triggerText?: string
   filterEnabledAtCapture?: boolean
 }
 

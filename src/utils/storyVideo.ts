@@ -21,9 +21,14 @@ export interface StoryVideoResult {
   frameCount: number
 }
 
+export type StoryLayoutMode = 'stage' | 'log'
+export type StoryPacingMode = 'auto' | 'bar' | 'half'
+
 interface StoryRenderOptions {
   onProgress?: (progress: number) => void
   signal?: AbortSignal
+  layoutMode?: StoryLayoutMode
+  pacingMode?: StoryPacingMode
 }
 
 const STORY_WIDTH = 1080
@@ -34,6 +39,11 @@ const MAX_STORY_DURATION = 15_000
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+function formatStoryTime(ms: number) {
+  const seconds = Math.floor(Math.max(0, ms) / 1000)
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 function wait(ms: number) {
@@ -88,12 +98,17 @@ export function selectStoryFrames(captures: CaptureItem[]) {
   return captures.filter(capture => selectedIds.has(capture.id))
 }
 
-function getFrameDuration(capture: CaptureItem) {
+function getFrameDuration(capture: CaptureItem, pacingMode: StoryPacingMode, frameCount: number) {
   const beatMs = capture.bpm && capture.bpm > 0 ? 60_000 / capture.bpm : 560
-  const beats = capture.isChorus ? 2 : 2.5
+  const effectivePacing = pacingMode === 'auto'
+    ? frameCount <= 6 ? 'bar' : 'half'
+    : pacingMode
+  const beats = effectivePacing === 'bar' ? 4 : 2
   const vocalBoost = clamp(capture.vocalIntensity ?? 0, 0, 1) * 180
 
-  return clamp(Math.round(beatMs * beats + vocalBoost), 850, 1700)
+  return effectivePacing === 'bar'
+    ? clamp(Math.round(beatMs * beats + vocalBoost), 1300, 2400)
+    : clamp(Math.round(beatMs * beats + vocalBoost), 760, 1450)
 }
 
 function normalizeDurations(frames: StoryRenderFrame[]) {
@@ -116,13 +131,13 @@ function loadImage(dataUrl: string) {
   })
 }
 
-async function prepareFrames(storyFrames: StoryFrame[]) {
+async function prepareFrames(storyFrames: StoryFrame[], pacingMode: StoryPacingMode) {
   const frames = await Promise.all(
     storyFrames.map(async frame => ({
       capture: frame.capture,
       image: await loadImage(frame.dataUrl),
       sourceIndex: frame.index,
-      duration: getFrameDuration(frame.capture),
+      duration: getFrameDuration(frame.capture, pacingMode, storyFrames.length),
     })),
   )
 
@@ -247,6 +262,367 @@ function drawWrappedText(
   lines.forEach((lineText, index) => {
     ctx.fillText(lineText, x, y + index * lineHeight)
   })
+}
+
+function drawContainedImageInRect(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight)
+  const sw = image.naturalWidth * scale
+  const sh = image.naturalHeight * scale
+  const dx = x + (width - sw) / 2
+  const dy = y + (height - sh) / 2
+
+  ctx.drawImage(image, dx, dy, sw, sh)
+
+  return { x: dx, y: dy, width: sw, height: sh }
+}
+
+function getCaptureReason(capture: CaptureItem) {
+  if (capture.cameraOffInteraction) return 'GESTURE TAKE'
+  if (capture.triggerText) return `TRIGGER ${capture.triggerText}`
+  if (capture.captureSource === 'auto') return 'AUTO SHOT'
+  return 'MANUAL SHOT'
+}
+
+function getEffectLabel(capture: CaptureItem) {
+  switch (capture.shutterEffect) {
+    case 'finder':
+      return 'FINDER'
+    case 'light-leak':
+      return 'LIGHT LEAK'
+    case 'sound-wave':
+      return 'SOUND WAVE'
+    case 'frame':
+      return 'FRAME'
+    case 'strobe':
+      return 'STROBE'
+    case 'speed-lines':
+      return 'SPEED LINES'
+    case 'glitch':
+      return 'GLITCH'
+    case 'noise':
+      return 'NOISE'
+    case 'stage-curtain':
+      return 'CURTAIN'
+    case 'answer-scan':
+      return 'ANSWER SCAN'
+    default:
+      return capture.triggerText || 'LYRIC CUT'
+  }
+}
+
+function getSongProgress(capture: CaptureItem) {
+  if (!capture.songDuration || capture.songDuration <= 0) return 0
+  return clamp(capture.songPosition / capture.songDuration, 0, 1)
+}
+
+function getTimelineStrip(frames: StoryRenderFrame[], activeIndex: number) {
+  const first = clamp(activeIndex - 2, 0, Math.max(0, frames.length - 5))
+  return frames.slice(first, first + 5).map((frame, offset) => ({
+    frame,
+    index: first + offset,
+  }))
+}
+
+function drawSetlogHeader(
+  ctx: CanvasRenderingContext2D,
+  frame: StoryRenderFrame,
+  frameNumber: number,
+  globalProgress: number,
+) {
+  ctx.save()
+  ctx.fillStyle = '#fffdf8'
+  ctx.fillRect(0, 0, STORY_WIDTH, 258)
+  ctx.strokeStyle = '#1a1a1f'
+  ctx.lineWidth = 6
+  ctx.beginPath()
+  ctx.moveTo(0, 258)
+  ctx.lineTo(STORY_WIDTH, 258)
+  ctx.stroke()
+
+  ctx.fillStyle = '#d8d0bd'
+  ctx.fillRect(58, 64, STORY_WIDTH - 116, 10)
+  ctx.fillStyle = '#f5c842'
+  ctx.fillRect(58, 64, (STORY_WIDTH - 116) * globalProgress, 10)
+
+  ctx.fillStyle = '#1a1a1f'
+  ctx.font = '900 72px "Barlow Condensed", Impact, sans-serif'
+  ctx.textBaseline = 'top'
+  ctx.fillText('MUSIC LOG', 58, 98)
+
+  ctx.font = '900 34px "Barlow Condensed", Impact, sans-serif'
+  ctx.textAlign = 'right'
+  ctx.fillText(`#${String(frameNumber).padStart(2, '0')}`, STORY_WIDTH - 58, 96)
+  ctx.fillStyle = '#3dd6e8'
+  ctx.fillText(formatStoryTime(frame.capture.songPosition), STORY_WIDTH - 58, 138)
+
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#1a1a1f'
+  ctx.font = '900 26px "Noto Sans JP", system-ui, sans-serif'
+  drawWrappedText(ctx, frame.capture.songTitle || 'Lyric Lens', 58, 188, STORY_WIDTH - 116, 34, 1)
+  ctx.restore()
+}
+
+function drawSetlogStage(
+  ctx: CanvasRenderingContext2D,
+  frame: StoryRenderFrame,
+  localProgress: number,
+) {
+  const top = 258
+  const height = 1260
+  const tintHue = frame.capture.tintHue ?? (frame.capture.isChorus ? 48 : 190)
+
+  ctx.save()
+  ctx.fillStyle = '#1a1a1f'
+  ctx.fillRect(0, top, STORY_WIDTH, height)
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
+  ctx.fillRect(58, top + 98, STORY_WIDTH - 116, 2)
+  ctx.fillRect(58, top + height - 166, STORY_WIDTH - 116, 2)
+
+  ctx.fillStyle = '#f5c842'
+  ctx.font = '900 28px "Barlow Condensed", Impact, sans-serif'
+  ctx.textBaseline = 'top'
+  ctx.fillText('NOW LYRIC', 58, top + 44)
+
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 38px "Noto Sans JP", system-ui, sans-serif'
+  drawWrappedText(ctx, frame.capture.phrase || 'Lyric Lens', 58, top + 82, 650, 48, 2)
+
+  const status = frame.capture.isChorus ? 'CHORUS' : 'VERSE'
+  const chord = frame.capture.chordName || 'NO CHORD'
+  const vox = `VOX ${Math.round((frame.capture.vocalIntensity ?? 0) * 100)}`
+
+  ctx.textAlign = 'right'
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 23px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText(status, STORY_WIDTH - 58, top + 46)
+  ctx.fillText(chord, STORY_WIDTH - 58, top + 86)
+  ctx.fillText(vox, STORY_WIDTH - 58, top + 126)
+  ctx.textAlign = 'left'
+
+  const buttonWidth = 344
+  const buttonX = (STORY_WIDTH - buttonWidth) / 2
+  roundRect(ctx, buttonX + 10, top + 160, buttonWidth, 68, 10)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.28)'
+  ctx.fill()
+  roundRect(ctx, buttonX, top + 150, buttonWidth, 68, 10)
+  ctx.fillStyle = '#f5c842'
+  ctx.fill()
+  ctx.strokeStyle = '#fffdf8'
+  ctx.lineWidth = 5
+  ctx.stroke()
+  ctx.fillStyle = '#1a1a1f'
+  ctx.font = '900 26px "Barlow Condensed", Impact, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('PLAY MUSIC LOG', STORY_WIDTH / 2, top + 184)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+
+  const imageTop = top + 250
+  const imageHeight = 738
+  const imageRect = drawContainedImageInRect(ctx, frame.image, 58, imageTop, STORY_WIDTH - 116, imageHeight)
+  ctx.strokeStyle = '#fffdf8'
+  ctx.lineWidth = 5
+  ctx.strokeRect(imageRect.x, imageRect.y, imageRect.width, imageRect.height)
+
+  ctx.save()
+  ctx.globalAlpha = frame.capture.isChorus ? 0.18 : 0.12
+  ctx.fillStyle = `hsl(${tintHue} 86% 56%)`
+  ctx.fillRect(imageRect.x, imageRect.y, imageRect.width, imageRect.height)
+  ctx.restore()
+
+  const pulse = Math.sin(localProgress * Math.PI)
+  ctx.save()
+  ctx.globalAlpha = 0.16 + pulse * 0.14
+  ctx.strokeStyle = '#3dd6e8'
+  ctx.lineWidth = 5
+  ctx.setLineDash([18, 16])
+  ctx.strokeRect(imageRect.x + 24, imageRect.y + 24, imageRect.width - 48, imageRect.height - 48)
+  ctx.setLineDash([])
+  ctx.restore()
+
+  const bottomTop = top + height - 130
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 28px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText('SHOT', 58, bottomTop)
+  ctx.fillText('MUSIC', 260, bottomTop)
+  ctx.fillText('CUT', 462, bottomTop)
+  ctx.fillText('REASON', 704, bottomTop)
+
+  ctx.fillStyle = '#3dd6e8'
+  ctx.font = '900 38px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText(formatStoryTime(frame.capture.songPosition), 58, bottomTop + 40)
+  ctx.fillText(formatStoryTime(frame.capture.songPosition), 260, bottomTop + 40)
+
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 30px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText(getEffectLabel(frame.capture), 462, bottomTop + 44)
+  drawWrappedText(ctx, getCaptureReason(frame.capture), 704, bottomTop + 44, 300, 34, 1)
+  ctx.restore()
+}
+
+function drawStageOnlyFrame(
+  ctx: CanvasRenderingContext2D,
+  frame: StoryRenderFrame,
+  localProgress: number,
+) {
+  const tintHue = frame.capture.tintHue ?? (frame.capture.isChorus ? 48 : 190)
+  const status = frame.capture.isChorus ? 'CHORUS' : 'VERSE'
+  const chord = frame.capture.chordName || 'NO CHORD'
+  const vox = `VOX ${Math.round((frame.capture.vocalIntensity ?? 0) * 100)}`
+
+  ctx.save()
+  ctx.fillStyle = '#1a1a1f'
+  ctx.fillRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
+  ctx.fillRect(62, 174, STORY_WIDTH - 124, 2)
+  ctx.fillRect(62, 1536, STORY_WIDTH - 124, 2)
+
+  ctx.fillStyle = '#f5c842'
+  ctx.font = '900 33px "Barlow Condensed", Impact, sans-serif'
+  ctx.textBaseline = 'top'
+  ctx.fillText('NOW LYRIC', 62, 86)
+
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 52px "Noto Sans JP", system-ui, sans-serif'
+  drawWrappedText(ctx, frame.capture.phrase || 'Lyric Lens', 62, 132, 700, 66, 2)
+
+  ctx.textAlign = 'right'
+  ctx.font = '900 28px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText(status, STORY_WIDTH - 62, 88)
+  ctx.fillText(chord, STORY_WIDTH - 62, 146)
+  ctx.fillText(vox, STORY_WIDTH - 62, 204)
+  ctx.textAlign = 'left'
+
+  const buttonWidth = 344
+  const buttonX = (STORY_WIDTH - buttonWidth) / 2
+  roundRect(ctx, buttonX + 10, 294, buttonWidth, 78, 10)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.28)'
+  ctx.fill()
+  roundRect(ctx, buttonX, 282, buttonWidth, 78, 10)
+  ctx.fillStyle = '#f5c842'
+  ctx.fill()
+  ctx.strokeStyle = '#fffdf8'
+  ctx.lineWidth = 5
+  ctx.stroke()
+  ctx.fillStyle = '#1a1a1f'
+  ctx.font = '900 31px "Barlow Condensed", Impact, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('PLAY MUSIC LOG', STORY_WIDTH / 2, 321)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+
+  const imageRect = drawContainedImageInRect(ctx, frame.image, 62, 635, STORY_WIDTH - 124, 610)
+  ctx.strokeStyle = '#fffdf8'
+  ctx.lineWidth = 5
+  ctx.strokeRect(imageRect.x, imageRect.y, imageRect.width, imageRect.height)
+
+  ctx.save()
+  ctx.globalAlpha = frame.capture.isChorus ? 0.18 : 0.12
+  ctx.fillStyle = `hsl(${tintHue} 86% 56%)`
+  ctx.fillRect(imageRect.x, imageRect.y, imageRect.width, imageRect.height)
+  ctx.restore()
+
+  const pulse = Math.sin(localProgress * Math.PI)
+  ctx.save()
+  ctx.globalAlpha = 0.14 + pulse * 0.12
+  ctx.strokeStyle = '#3dd6e8'
+  ctx.lineWidth = 5
+  ctx.setLineDash([18, 16])
+  ctx.strokeRect(imageRect.x + 24, imageRect.y + 24, imageRect.width - 48, imageRect.height - 48)
+  ctx.setLineDash([])
+  ctx.restore()
+
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 30px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText('SHOT', 62, 1596)
+  ctx.fillText('MUSIC', 262, 1596)
+  ctx.fillText('CUT', 462, 1596)
+  ctx.fillText('REASON', 706, 1596)
+
+  ctx.fillStyle = '#3dd6e8'
+  ctx.font = '900 44px "Barlow Condensed", Impact, sans-serif'
+  ctx.fillText(formatStoryTime(frame.capture.songPosition), 62, 1658)
+  ctx.fillText(formatStoryTime(frame.capture.songPosition), 262, 1658)
+
+  ctx.fillStyle = '#fffdf8'
+  ctx.font = '900 38px "Noto Sans JP", system-ui, sans-serif'
+  drawWrappedText(ctx, getEffectLabel(frame.capture), 462, 1658, 220, 46, 1)
+  ctx.font = '900 32px "Barlow Condensed", Impact, sans-serif'
+  drawWrappedText(ctx, getCaptureReason(frame.capture), 706, 1658, 312, 40, 2)
+  ctx.restore()
+}
+
+function drawSetlogFooter(
+  ctx: CanvasRenderingContext2D,
+  frames: StoryRenderFrame[],
+  activeIndex: number,
+) {
+  const frame = frames[activeIndex]
+  const top = 1518
+  const progress = Math.round(getSongProgress(frame.capture) * 100)
+
+  ctx.save()
+  ctx.fillStyle = '#fffdf8'
+  ctx.fillRect(0, top, STORY_WIDTH, STORY_HEIGHT - top)
+  ctx.strokeStyle = '#1a1a1f'
+  ctx.lineWidth = 6
+  ctx.beginPath()
+  ctx.moveTo(0, top)
+  ctx.lineTo(STORY_WIDTH, top)
+  ctx.stroke()
+
+  ctx.fillStyle = '#1a1a1f'
+  ctx.font = '900 34px "Noto Sans JP", system-ui, sans-serif'
+  ctx.textBaseline = 'top'
+  drawWrappedText(ctx, frame.capture.phrase || 'Lyric Lens', 58, top + 36, STORY_WIDTH - 116, 44, 2)
+
+  ctx.fillStyle = '#3dd6e8'
+  ctx.font = '900 26px "Barlow Condensed", Impact, sans-serif'
+  const tags = [
+    `${progress}%`,
+    frame.capture.captureSource === 'auto' ? 'AUTO' : 'MANUAL',
+    frame.capture.isChorus ? 'CHORUS' : 'VERSE',
+    frame.capture.chordName || 'NO CHORD',
+  ]
+  ctx.fillText(tags.join(' / '), 58, top + 138)
+
+  const strip = getTimelineStrip(frames, activeIndex)
+  const gap = 16
+  const thumbWidth = (STORY_WIDTH - 116 - gap * 4) / 5
+  const thumbHeight = 164
+  const y = top + 200
+
+  strip.forEach(({ frame: thumb, index }, offset) => {
+    const x = 58 + offset * (thumbWidth + gap)
+    ctx.fillStyle = index === activeIndex ? '#f5c842' : '#1a1a1f'
+    roundRect(ctx, x - 5, y - 5, thumbWidth + 10, thumbHeight + 10, 10)
+    ctx.fill()
+
+    ctx.save()
+    roundRect(ctx, x, y, thumbWidth, thumbHeight, 6)
+    ctx.clip()
+    ctx.fillStyle = '#1a1a1f'
+    ctx.fillRect(x, y, thumbWidth, thumbHeight)
+    drawContainedImageInRect(ctx, thumb.image, x, y, thumbWidth, thumbHeight)
+    ctx.restore()
+
+    ctx.fillStyle = '#fffdf8'
+    ctx.font = '900 20px "Barlow Condensed", Impact, sans-serif'
+    ctx.fillText(String(thumb.sourceIndex + 1).padStart(2, '0'), x + 10, y + 10)
+  })
+
+  ctx.restore()
 }
 
 function drawCapturedEffect(
@@ -384,93 +760,22 @@ function drawStoryFrame(
   frameIndex: number,
   localProgress: number,
   globalProgress: number,
+  layoutMode: StoryLayoutMode,
 ) {
   const frame = frames[frameIndex]
-  const nextFrame = frames[Math.min(frames.length - 1, frameIndex + 1)]
-  const tintHue = frame.capture.tintHue ?? (frame.capture.isChorus ? 48 : 190)
-  const transitionProgress = clamp((localProgress - 0.82) / 0.18, 0, 1)
-  const activeImage = transitionProgress > 0 && nextFrame ? nextFrame.image : frame.image
-  const kenBurns = 1.025 + localProgress * 0.045
 
   ctx.clearRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
-  ctx.fillStyle = '#1a1a1f'
-  ctx.fillRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
 
-  ctx.save()
-  if (transitionProgress > 0) {
-    ctx.globalAlpha = 1 - transitionProgress
-    drawStoryImage(ctx, frame.image, kenBurns)
-    ctx.globalAlpha = transitionProgress
-    drawStoryImage(ctx, activeImage, 1.02)
-  } else {
-    drawStoryImage(ctx, activeImage, kenBurns)
+  if (layoutMode === 'stage') {
+    drawStageOnlyFrame(ctx, frame, localProgress)
+    return
   }
-  ctx.restore()
 
-  ctx.save()
-  ctx.globalAlpha = frame.capture.isChorus ? 0.24 : 0.16
-  ctx.fillStyle = `hsl(${tintHue} 82% 54%)`
+  ctx.fillStyle = '#fffdf8'
   ctx.fillRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
-  ctx.restore()
-
-  const gradient = ctx.createLinearGradient(0, STORY_HEIGHT * 0.42, 0, STORY_HEIGHT)
-  gradient.addColorStop(0, 'rgba(26, 26, 31, 0)')
-  gradient.addColorStop(0.58, 'rgba(26, 26, 31, 0.54)')
-  gradient.addColorStop(1, 'rgba(26, 26, 31, 0.86)')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
-
-  drawCapturedEffect(ctx, frame, localProgress)
-  drawCameraOffInteraction(ctx, frame.capture.cameraOffInteraction, localProgress)
-
-  ctx.strokeStyle = 'rgba(61, 214, 232, 0.52)'
-  ctx.lineWidth = 4
-  ctx.setLineDash([16, 18])
-  ctx.strokeRect(62, 120, STORY_WIDTH - 124, STORY_HEIGHT - 240)
-  ctx.setLineDash([])
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)'
-  const railWidth = STORY_WIDTH - 120
-  ctx.fillRect(60, 62, railWidth, 8)
-  ctx.fillStyle = '#f5c842'
-  ctx.fillRect(60, 62, railWidth * globalProgress, 8)
-
-  ctx.font = '900 34px "Barlow Condensed", Impact, sans-serif'
-  ctx.textBaseline = 'top'
-  ctx.fillStyle = '#f5c842'
-  ctx.fillText(frame.capture.isChorus ? 'CHORUS CUT' : 'LYRIC CUT', 72, 104)
-
-  ctx.fillStyle = '#ffffff'
-  ctx.font = '900 25px "Noto Sans JP", system-ui, sans-serif'
-  const meta = [
-    `#${String(frame.sourceIndex + 1).padStart(3, '0')}`,
-    frame.capture.chordName || 'NO CHORD',
-    `${Math.round((frame.capture.vocalIntensity ?? 0) * 100)} VOX`,
-  ].join(' / ')
-  ctx.fillText(meta, 72, 148)
-
-  ctx.save()
-  ctx.translate(STORY_WIDTH - 76, STORY_HEIGHT * 0.52)
-  ctx.rotate(Math.PI / 2)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)'
-  ctx.font = '900 24px "Barlow Condensed", Impact, sans-serif'
-  ctx.fillText(frame.capture.songTitle || 'Lyric Lens', 0, 0)
-  ctx.restore()
-
-  ctx.fillStyle = '#ffffff'
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'
-  ctx.shadowBlur = 18
-  ctx.font = '900 64px "Noto Sans JP", system-ui, sans-serif'
-  drawWrappedText(ctx, frame.capture.phrase || 'Lyric Lens', 74, STORY_HEIGHT - 340, STORY_WIDTH - 148, 82, 3)
-  ctx.shadowBlur = 0
-
-  ctx.fillStyle = '#3dd6e8'
-  ctx.font = '900 34px "Barlow Condensed", Impact, sans-serif'
-  ctx.fillText('TEXTALIVE AUTO EDIT', 74, STORY_HEIGHT - 114)
-
-  const pulse = Math.sin(localProgress * Math.PI)
-  ctx.fillStyle = `rgba(245, 200, 66, ${0.48 + pulse * 0.34})`
-  ctx.fillRect(74, STORY_HEIGHT - 154, (STORY_WIDTH - 148) * localProgress, 6)
+  drawSetlogHeader(ctx, frame, frame.sourceIndex + 1, globalProgress)
+  drawSetlogStage(ctx, frame, localProgress)
+  drawSetlogFooter(ctx, frames, frameIndex)
 }
 
 function assertCanRenderStory() {
@@ -493,6 +798,8 @@ export async function createStoryVideo(
     throw new Error('動画に使えるフレームがありません。')
   }
 
+  const layoutMode = options.layoutMode ?? 'stage'
+  const pacingMode = options.pacingMode ?? 'auto'
   const mimeType = pickMimeType()
   const canvas = document.createElement('canvas')
   canvas.width = STORY_WIDTH
@@ -501,7 +808,7 @@ export async function createStoryVideo(
 
   if (!ctx) throw new Error('Canvasを初期化できませんでした。')
 
-  const frames = await prepareFrames(storyFrames)
+  const frames = await prepareFrames(storyFrames, pacingMode)
   const durationMs = frames.reduce((sum, frame) => sum + frame.duration, 0)
   const stream = canvas.captureStream(STORY_FPS)
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
@@ -535,7 +842,7 @@ export async function createStoryVideo(
         const frameElapsed = performance.now() - frameStartedAt
         const localProgress = clamp(frameElapsed / frame.duration, 0, 1)
         const globalProgress = clamp((elapsedBeforeFrame + frameElapsed) / durationMs, 0, 1)
-        drawStoryFrame(ctx, frames, frameIndex, localProgress, globalProgress)
+        drawStoryFrame(ctx, frames, frameIndex, localProgress, globalProgress, layoutMode)
         options.onProgress?.(globalProgress)
         await wait(1000 / STORY_FPS)
       }
@@ -543,7 +850,7 @@ export async function createStoryVideo(
       elapsedBeforeFrame += frame.duration
     }
 
-    drawStoryFrame(ctx, frames, frames.length - 1, 1, 1)
+    drawStoryFrame(ctx, frames, frames.length - 1, 1, 1, layoutMode)
     options.onProgress?.(1)
     await wait(Math.max(80, startedAt + durationMs - performance.now()))
     recorder.stop()
